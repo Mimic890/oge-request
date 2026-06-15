@@ -26,30 +26,55 @@ type Result struct {
 
 func FetchResults(code string) (map[string]Result, error) {
 	body := fmt.Sprintf("code=%s&year=26", code)
-	req, err := http.NewRequest("POST", resultsURL, strings.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+		}
+		req, err := http.NewRequest("POST", resultsURL, strings.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
 
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		stats.RecordVisit()
+		stats.AddBytes(int64(len(data)) + int64(len(body)))
+
+		return parseResults(string(data))
 	}
-	defer resp.Body.Close()
+	return nil, lastErr
+}
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+func friendlyError(err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "connection reset"):
+		return "Сайт временно недоступен, попробуйте через минуту"
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline"):
+		return "Сайт не отвечает, попробуйте позже"
+	case strings.Contains(msg, "no such host"):
+		return "Не удаётся подключиться к сайту"
+	case strings.Contains(msg, "connection refused"):
+		return "Сайт временно недоступен"
+	default:
+		return "Ошибка связи с сайтом, попробуйте позже"
 	}
-
-	stats.RecordVisit()
-	stats.AddBytes(int64(len(data)) + int64(len(body)))
-
-	return parseResults(string(data))
 }
 
 func parseResults(html string) (map[string]Result, error) {
@@ -68,7 +93,10 @@ func parseResults(html string) (map[string]Result, error) {
 		subj := strings.TrimSpace(nameEl.Text())
 		date := strings.TrimSpace(s.Find(".subject-date").Text())
 		score := strings.TrimSpace(s.Find(".primary").Text())
-		grade := strings.TrimSpace(s.Find("[class^='mark']").Text())
+		gradeRaw := strings.TrimSpace(s.Find("[class^='mark']").Text())
+		gradeRaw = strings.TrimPrefix(gradeRaw, "Оценка:")
+		gradeRaw = strings.TrimSpace(gradeRaw)
+		grade := fixGradeSpacing(gradeRaw)
 		results[subj] = Result{Date: date, Score: score, Grade: grade}
 	})
 
@@ -94,6 +122,31 @@ func FormatResults(results map[string]Result) string {
 	return sb.String()
 }
 
+func fixGradeSpacing(grade string) string {
+	if len(grade) == 0 {
+		return grade
+	}
+	runes := []rune(grade)
+	for i, ch := range runes {
+		if isLetter(ch) {
+			if i > 0 && runes[i-1] != ' ' {
+				result := make([]rune, 0, len(runes)+1)
+				result = append(result, runes[:i]...)
+				result = append(result, ' ')
+				result = append(result, runes[i:]...)
+				return string(result)
+			}
+			break
+		}
+	}
+	return grade
+}
+
+func isLetter(ch rune) bool {
+	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+		(ch >= 'А' && ch <= 'Я') || (ch >= 'а' && ch <= 'я') || ch == 'ё' || ch == 'Ё'
+}
+
 func DiffResults(old, cur map[string]Result) []string {
 	var changed []string
 	for subj, r := range cur {
@@ -102,4 +155,22 @@ func DiffResults(old, cur map[string]Result) []string {
 		}
 	}
 	return changed
+}
+
+func CheckSiteAvailable() (available bool, latencyMs int64) {
+	start := time.Now()
+	req, err := http.NewRequest("GET", "https://ege-kostroma.ru/results", nil)
+	if err != nil {
+		return false, 0
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	r, err := httpClient.Do(req)
+	latencyMs = time.Since(start).Milliseconds()
+	if err != nil {
+		return false, latencyMs
+	}
+	r.Body.Close()
+	return r.StatusCode >= 200 && r.StatusCode < 500, latencyMs
 }
