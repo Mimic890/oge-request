@@ -85,8 +85,7 @@ func (b *Bot) cmdStart(msg *tgbotapi.Message) {
 	}
 
 	if b.isAdmin(uid) {
-		kb := adminMenu()
-		b.send(chatID, txt, kb)
+		b.send(chatID, txt, adminMenu())
 		return
 	}
 	b.send(chatID, txt, userMenu())
@@ -97,25 +96,26 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 
 	uid := q.From.ID
 	chatID := q.Message.Chat.ID
+	msgID := q.Message.MessageID
 	data := q.Data
 
 	switch data {
 	case "set_code":
 		users := b.store.LoadUsers()
 		if _, already := users[uid]; !already && b.cfg.MaxUsers > 0 && len(users) >= b.cfg.MaxUsers {
-			b.edit(chatID, q.Message.MessageID, "Лимит пользователей исчерпан. Попробуйте позже.", userMenu())
+			b.edit(chatID, msgID, "Лимит пользователей исчерпан. Попробуйте позже.", userMenu())
 			return
 		}
 		b.mu.Lock()
 		b.waiting[uid] = true
 		b.mu.Unlock()
-		b.edit(chatID, q.Message.MessageID, "Введите код участника в формате XXXX-XXXX-XXXX:\n\nОтправьте /start для отмены.", nil)
+		b.edit(chatID, msgID, "Введите код участника в формате XXXX-XXXX-XXXX:\n\nОтправьте /start для отмены.", nil)
 
 	case "check":
-		b.handleCheck(chatID, uid)
+		b.editCheck(chatID, msgID, uid)
 
 	case "my_results":
-		b.handleMyResults(chatID, uid)
+		b.editMyResults(chatID, msgID, uid)
 
 	case "disable":
 		kb := tgbotapi.NewInlineKeyboardMarkup(
@@ -124,32 +124,41 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 				tgbotapi.NewInlineKeyboardButtonData("Нет, назад", "menu"),
 			),
 		)
-		b.edit(chatID, q.Message.MessageID, "Удалить код участника и прекратить проверки?", &kb)
+		b.edit(chatID, msgID, "Удалить код участника и прекратить проверки?", &kb)
 
 	case "disable_confirm":
 		b.store.RemoveUser(uid)
 		b.store.RemoveState(uid)
-		b.edit(chatID, q.Message.MessageID, "Бот отключён. Код и результаты удалены.\n\nДля повторного использования: /start", nil)
+		b.edit(chatID, msgID, "Бот отключён. Код и результаты удалены.\n\nДля повторного использования: /start", nil)
 
 	case "menu":
-		b.cmdStart(&tgbotapi.Message{
-			From: q.From,
-			Chat: &tgbotapi.Chat{ID: chatID},
-		})
+		users := b.store.LoadUsers()
+		txt := "Привет! Я бот для мониторинга результатов ОГЭ.\n\n"
+		if u, ok := users[uid]; ok {
+			masked := maskCode(u.Code)
+			txt += fmt.Sprintf("Код: %s\nИнтервал: %d мин\n\nВыберите действие:", masked, int(b.cfg.CheckInterval.Seconds())/60)
+		} else {
+			txt += fmt.Sprintf("Проверяю результаты каждые %d мин.\n\nНастройте код участника для начала.", int(b.cfg.CheckInterval.Seconds())/60)
+		}
+		if b.isAdmin(uid) {
+			b.edit(chatID, msgID, txt, adminMenu())
+		} else {
+			b.edit(chatID, msgID, txt, userMenu())
+		}
 
 	case "admin_status":
 		if b.isAdmin(uid) {
-			b.editStatus(chatID, q.Message.MessageID)
+			b.edit(chatID, msgID, b.buildStatusText(), adminStatusMenu())
 		}
 
 	case "admin_users":
 		if b.isAdmin(uid) {
-			b.editUsers(chatID, q.Message.MessageID)
+			b.edit(chatID, msgID, b.buildUsersText(), adminStatusMenu())
 		}
 
 	case "admin_ram":
 		if b.isAdmin(uid) {
-			b.editRAM(chatID, q.Message.MessageID)
+			b.edit(chatID, msgID, b.buildRAMText(), adminStatusMenu())
 		}
 	}
 }
@@ -177,7 +186,7 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 	}
 
 	b.store.SaveUser(uid, code)
-	b.reply(chatID, "Код сохранён.\nПроверяю результаты...")
+	b.reply(chatID, "Код сохранён. Проверяю результаты...")
 	b.handleCheck(chatID, uid)
 }
 
@@ -207,111 +216,43 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 	b.send(chatID, text, resultMenu())
 }
 
-func (b *Bot) handleMyResults(chatID int64, uid int64) {
-	results := b.store.GetUserResults(uid)
-	if len(results) == 0 {
-		b.send(chatID, "Нет сохранённых результатов.\nНажмите «Проверить результаты».", userMenu())
+func (b *Bot) editCheck(chatID int64, msgID int, uid int64) {
+	users := b.store.LoadUsers()
+	u, ok := users[uid]
+	if !ok {
+		b.edit(chatID, msgID, "Сначала настройте код участника.", userMenu())
 		return
 	}
-	b.send(chatID, FormatResults(results), resultMenu())
+
+	results, err := FetchResults(u.Code)
+	if err != nil {
+		b.edit(chatID, msgID, friendlyError(err), resultMenu())
+		return
+	}
+	if len(results) == 0 {
+		b.edit(chatID, msgID, "Результаты не найдены.", resultMenu())
+		return
+	}
+
+	changed := b.store.UpdateUserResults(uid, results)
+	text := FormatResults(results)
+	if len(changed) > 0 {
+		text = "Обнаружены изменения!\n\n" + text
+	}
+	b.edit(chatID, msgID, text, resultMenu())
+}
+
+func (b *Bot) editMyResults(chatID int64, msgID int, uid int64) {
+	results := b.store.GetUserResults(uid)
+	if len(results) == 0 {
+		b.edit(chatID, msgID, "Нет сохранённых результатов.\nНажмите «Проверить результаты».", userMenu())
+		return
+	}
+	b.edit(chatID, msgID, FormatResults(results), resultMenu())
 }
 
 func (b *Bot) cmdStatus(msg *tgbotapi.Message) {
-	b.handleStatus(msg.Chat.ID)
-}
-
-func (b *Bot) handleStatus(chatID int64) {
-	b.send(chatID, b.buildStatusText(), adminStatusMenu())
-}
-
-func (b *Bot) handleUsers(chatID int64) {
-	b.send(chatID, b.buildUsersText(), adminStatusMenu())
-}
-
-func (b *Bot) handleRAM(chatID int64) {
-	b.send(chatID, b.buildRAMText(), adminStatusMenu())
-}
-
-func (b *Bot) editStatus(chatID int64, messageID int) {
-	b.edit(chatID, messageID, b.buildStatusText(), adminStatusMenu())
-}
-
-func (b *Bot) editUsers(chatID int64, messageID int) {
-	b.edit(chatID, messageID, b.buildUsersText(), adminStatusMenu())
-}
-
-func (b *Bot) editRAM(chatID int64, messageID int) {
-	b.edit(chatID, messageID, b.buildRAMText(), adminStatusMenu())
-}
-
-func (b *Bot) buildStatusText() string {
-	totalUsers, activeUsers := b.store.ActiveUsers()
-	uptime := stats.UptimeDuration()
-	hours := int(uptime.Hours())
-	mins := int(uptime.Minutes()) % 60
-	alloc, sys := GetRAM()
-
-	limitStr := "без лимита"
-	if b.cfg.MaxUsers > 0 {
-		limitStr = fmt.Sprintf("%d", b.cfg.MaxUsers)
-	}
-
-	siteOK, siteMs := CheckSiteAvailable()
-	siteStatus := "✅ Доступен"
-	if !siteOK {
-		siteStatus = "❌ Недоступен"
-	}
-
-	return fmt.Sprintf(
-		"<b>Статус бота</b>\n\n"+
-			"<b>Сайт ege-kostroma.ru:</b> %s (%dms)\n"+
-			"<b>Аптайм:</b> %dч %dм\n"+
-			"<b>Пользователей:</b> %d/%s (активных: %d)\n"+
-			"<b>Проверок сайта сегодня:</b> %d\n"+
-			"<b>Всего проверок:</b> %d\n"+
-			"<b>Трафик:</b> %s\n"+
-			"<b>RAM (alloc):</b> %s\n"+
-			"<b>RAM (sys):</b> %s",
-		siteStatus, siteMs,
-		hours, mins,
-		totalUsers, limitStr, activeUsers,
-		stats.SiteVisitsToday(),
-		stats.TotalSiteVisits(),
-		FormatBytes(stats.TotalBytes()),
-		FormatBytes(int64(alloc)),
-		FormatBytes(int64(sys)),
-	)
-}
-
-func (b *Bot) buildUsersText() string {
-	users := b.store.LoadUsers()
-	if len(users) == 0 {
-		return "Нет зарегистрированных пользователей."
-	}
-	text := "<b>Пользователи:</b>\n\n"
-	for uid, entry := range users {
-		masked := maskCode(entry.Code)
-		text += fmt.Sprintf("  <code>%d</code> — %s\n", uid, masked)
-	}
-	return text
-}
-
-func (b *Bot) buildRAMText() string {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return fmt.Sprintf(
-		"<b>Память:</b>\n\n"+
-			"Alloc: %s\n"+
-			"TotalAlloc: %s\n"+
-			"Sys: %s\n"+
-			"NumGC: %d\n"+
-			"Goroutines: %d",
-		FormatBytes(int64(m.Alloc)),
-		FormatBytes(int64(m.TotalAlloc)),
-		FormatBytes(int64(m.Sys)),
-		m.NumGC,
-		runtime.NumGoroutine(),
-	)
+	b.send(msg.Chat.ID, b.buildStatusText(), adminStatusMenu())
 }
 
 func (b *Bot) send(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup) {
@@ -412,6 +353,76 @@ func resultMenu() *tgbotapi.InlineKeyboardMarkup {
 		),
 	)
 	return &kb
+}
+
+func (b *Bot) buildStatusText() string {
+	totalUsers, activeUsers := b.store.ActiveUsers()
+	uptime := stats.UptimeDuration()
+	hours := int(uptime.Hours())
+	mins := int(uptime.Minutes()) % 60
+	alloc, sys := GetRAM()
+
+	limitStr := "без лимита"
+	if b.cfg.MaxUsers > 0 {
+		limitStr = fmt.Sprintf("%d", b.cfg.MaxUsers)
+	}
+
+	siteOK, siteMs := CheckSiteAvailable()
+	siteStatus := "Доступен"
+	if !siteOK {
+		siteStatus = "Недоступен"
+	}
+
+	return fmt.Sprintf(
+		"<b>Статус бота</b>\n\n"+
+			"Сайт ege-kostroma.ru: %s (%dms)\n"+
+			"Аптайм: %dч %dм\n"+
+			"Пользователей: %d/%s (активных: %d)\n"+
+			"Проверок сайта сегодня: %d\n"+
+			"Всего проверок: %d\n"+
+			"Трафик: %s\n"+
+			"RAM (alloc): %s\n"+
+			"RAM (sys): %s",
+		siteStatus, siteMs,
+		hours, mins,
+		totalUsers, limitStr, activeUsers,
+		stats.SiteVisitsToday(),
+		stats.TotalSiteVisits(),
+		FormatBytes(stats.TotalBytes()),
+		FormatBytes(int64(alloc)),
+		FormatBytes(int64(sys)),
+	)
+}
+
+func (b *Bot) buildUsersText() string {
+	users := b.store.LoadUsers()
+	if len(users) == 0 {
+		return "Нет зарегистрированных пользователей."
+	}
+	text := "<b>Пользователи:</b>\n\n"
+	for uid, entry := range users {
+		masked := maskCode(entry.Code)
+		text += fmt.Sprintf("  <code>%d</code> — %s\n", uid, masked)
+	}
+	return text
+}
+
+func (b *Bot) buildRAMText() string {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return fmt.Sprintf(
+		"<b>Память:</b>\n\n"+
+			"Alloc: %s\n"+
+			"TotalAlloc: %s\n"+
+			"Sys: %s\n"+
+			"NumGC: %d\n"+
+			"Goroutines: %d",
+		FormatBytes(int64(m.Alloc)),
+		FormatBytes(int64(m.TotalAlloc)),
+		FormatBytes(int64(m.Sys)),
+		m.NumGC,
+		runtime.NumGoroutine(),
+	)
 }
 
 func FormatBytes(b int64) string {
