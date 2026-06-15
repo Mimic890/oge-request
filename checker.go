@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -13,7 +12,12 @@ import (
 
 const resultsURL = "https://ege-kostroma.ru/results-z.php"
 
-var httpClient = &http.Client{Timeout: 15 * time.Second}
+var httpClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		Proxy: nil,
+	},
+}
 
 var headers = map[string]string{
 	"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
@@ -160,11 +164,16 @@ func DiffResults(old, cur map[string]Result) []string {
 
 func CheckSiteAvailable() (bool, int64) {
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", "ege-kostroma.ru:443", 5*time.Second)
+	req, err := http.NewRequest("GET", "https://ege-kostroma.ru/", nil)
+	if err != nil {
+		return false, 0
+	}
+	req.Header.Set("User-Agent", headers["User-Agent"])
+	r, err := httpClient.Do(req)
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return false, latency
 	}
-	conn.Close()
+	r.Body.Close()
 	return true, latency
 }

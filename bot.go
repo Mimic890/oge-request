@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
+	"os"
 	"regexp"
 	"runtime"
 	"strings"
@@ -26,6 +29,23 @@ func NewBot(cfg Config, store *Storage) (*Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("telegram: %w", err)
 	}
+
+	proxyURL := os.Getenv("HTTPS_PROXY")
+	if proxyURL == "" {
+		proxyURL = os.Getenv("HTTP_PROXY")
+	}
+	if proxyURL != "" {
+		parsed, err := url.Parse(proxyURL)
+		if err == nil {
+			api.Client = &http.Client{
+				Transport: &http.Transport{
+					Proxy: http.ProxyURL(parsed),
+				},
+			}
+			log.Printf("telegram proxy: %s", proxyURL)
+		}
+	}
+
 	log.Printf("authorized as @%s", api.Self.UserName)
 	b := &Bot{
 		api:     api,
