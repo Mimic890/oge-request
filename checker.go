@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -159,18 +160,11 @@ func DiffResults(old, cur map[string]Result) []string {
 
 func CheckSiteAvailable() (bool, int64) {
 	start := time.Now()
-	req, err := http.NewRequest("HEAD", "https://ege-kostroma.ru/", nil)
-	if err != nil {
-		return false, 0
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	r, err := httpClient.Do(req)
+	conn, err := net.DialTimeout("tcp", "ege-kostroma.ru:443", 5*time.Second)
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return false, latency
 	}
-	r.Body.Close()
+	conn.Close()
 	return true, latency
 }
