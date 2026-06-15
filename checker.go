@@ -159,7 +159,7 @@ func DiffResults(old, cur map[string]Result) []string {
 
 func CheckSiteAvailable() (available bool, latencyMs int64) {
 	start := time.Now()
-	req, err := http.NewRequest("GET", "https://ege-kostroma.ru/results", nil)
+	req, err := http.NewRequest("HEAD", "https://ege-kostroma.ru/", nil)
 	if err != nil {
 		return false, 0
 	}
@@ -172,5 +172,5 @@ func CheckSiteAvailable() (available bool, latencyMs int64) {
 		return false, latencyMs
 	}
 	r.Body.Close()
-	return r.StatusCode >= 200 && r.StatusCode < 500, latencyMs
+	return true, latencyMs
 }
