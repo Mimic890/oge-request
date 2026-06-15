@@ -19,6 +19,12 @@ var httpClient = &http.Client{
 	},
 }
 
+var siteLimiter *RateLimiter
+
+func InitRateLimiter(rps int) {
+	siteLimiter = NewRateLimiter(rps)
+}
+
 var headers = map[string]string{
 	"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
 }
@@ -30,6 +36,9 @@ type Result struct {
 }
 
 func FetchResults(code string) (map[string]Result, error) {
+	if siteLimiter != nil {
+		siteLimiter.Wait()
+	}
 	body := fmt.Sprintf("code=%s&year=26", code)
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -163,6 +172,9 @@ func DiffResults(old, cur map[string]Result) []string {
 }
 
 func CheckSiteAvailable() (bool, int64) {
+	if siteLimiter != nil {
+		siteLimiter.Wait()
+	}
 	start := time.Now()
 	req, err := http.NewRequest("GET", "https://ege-kostroma.ru/", nil)
 	if err != nil {

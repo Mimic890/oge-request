@@ -17,6 +17,7 @@ type Config struct {
 	TelegramToken string
 	AdminID       int64
 	MaxUsers      int
+	MaxRPS        int
 	CheckInterval time.Duration
 	DataDir       string
 }
@@ -31,6 +32,10 @@ func LoadConfig() Config {
 
 	adminID, _ := strconv.ParseInt(os.Getenv("ADMIN_ID"), 10, 64)
 	maxUsers, _ := strconv.Atoi(os.Getenv("MAX_USERS"))
+	maxRPS, _ := strconv.Atoi(os.Getenv("MAX_RPS"))
+	if maxRPS <= 0 {
+		maxRPS = 2
+	}
 	interval, _ := strconv.Atoi(os.Getenv("CHECK_INTERVAL"))
 	if interval <= 0 {
 		interval = 600
@@ -44,6 +49,7 @@ func LoadConfig() Config {
 		TelegramToken: token,
 		AdminID:       adminID,
 		MaxUsers:      maxUsers,
+		MaxRPS:        maxRPS,
 		CheckInterval: time.Duration(interval) * time.Second,
 		DataDir:       dataDir,
 	}
@@ -86,6 +92,9 @@ func main() {
 	if err := validateDataDir(cfg.DataDir); err != nil {
 		log.Fatalf("DATA DIR ERROR:\n%v", err)
 	}
+
+	InitRateLimiter(cfg.MaxRPS)
+	log.Printf("rate limit: %d req/s", cfg.MaxRPS)
 
 	store, err := NewStorage(cfg.DataDir)
 	if err != nil {
