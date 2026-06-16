@@ -115,20 +115,6 @@ func msgErrorsToggled(enabled bool) string {
 	return "🔕 Уведомления об ошибках выключены."
 }
 
-// Site availability
-
-func msgSiteDownAdmin(failures int) string {
-	return fmt.Sprintf(
-		"<b>🔴 Сайт недоступен</b>\n\n"+
-			"ege-kostroma.ru не отвечает (%d попыток подряд).\n"+
-			"Проверки результатов приостановлены.",
-		failures)
-}
-
-func msgSiteRecoveredAdmin() string {
-	return "<b>🟢 Сайт восстановлен</b>\n\nПроверки результатов возобновлены."
-}
-
 // Inactivity
 
 func msgInactivityWarning(daysInactive int) string {

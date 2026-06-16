@@ -20,7 +20,6 @@ type Bot struct {
 	api           *tgbotapi.BotAPI
 	cfg           Config
 	store         *Storage
-	siteFailures  *SiteFailureTracker
 	adminUsername  string
 	mu            sync.Mutex
 	waiting       map[int64]bool
@@ -53,7 +52,6 @@ func NewBot(cfg Config, store *Storage) (*Bot, error) {
 		api:          api,
 		cfg:          cfg,
 		store:        store,
-		siteFailures: &SiteFailureTracker{},
 		waiting:      make(map[int64]bool),
 	}
 
@@ -334,17 +332,7 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
-		if b.store.GetErrorsEnabled(uid) {
-			name := fmt.Sprintf("%d", uid)
-			if u.Username != "" {
-				name = fmt.Sprintf("%d (@%s)", uid, u.Username)
-			}
-			b.sendSilent(b.cfg.AdminID,
-				fmt.Sprintf("⚠️ Ошибка проверки\n\n"+
-					"Пользователь: %s\n"+
-					"Код: %s\n"+
-					"%v", name, maskCode(u.Code), err))
-		}
+		notifyAdminError(b, uid, u.Code, u.Username, err)
 		b.sendWithInline(chatID, msgSiteUnavailable(b.adminContact()), mainKeyboard(b.isAdmin(uid), true))
 		return
 	}
