@@ -198,7 +198,7 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 		b.edit(chatID, msgID, msgSetCode(), nil)
 
 	case "check":
-		b.editCheck(chatID, msgID, uid)
+		b.checkAndSend(chatID, msgID, uid)
 
 	case "disable":
 		kb := tgbotapi.NewInlineKeyboardMarkup(
@@ -327,17 +327,17 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 	users := b.store.LoadUsers()
 	u, ok := users[uid]
 	if !ok {
-		b.send(chatID, "Сначала настройте код участника.", mainKeyboard(false, false))
+		b.sendWithInline(chatID, "Сначала настройте код участника.", mainKeyboard(false, false))
 		return
 	}
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
-		b.send(chatID, msgSiteUnavailable(b.adminContact()), mainKeyboard(b.isAdmin(uid), true))
+		b.sendWithInline(chatID, msgSiteUnavailable(b.adminContact()), mainKeyboard(b.isAdmin(uid), true))
 		return
 	}
 	if len(results) == 0 {
-		b.send(chatID, msgNoResults(), resultMenu())
+		b.sendWithInline(chatID, msgNoResults(), resultMenu())
 		return
 	}
 
@@ -346,10 +346,10 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 	if len(changed) > 0 {
 		text = msgUpdateHeader() + text
 	}
-	b.send(chatID, text, resultMenu())
+	b.sendWithInline(chatID, text, resultMenu())
 }
 
-func (b *Bot) editCheck(chatID int64, msgID int, uid int64) {
+func (b *Bot) checkAndSend(chatID int64, msgID int, uid int64) {
 	users := b.store.LoadUsers()
 	u, ok := users[uid]
 	if !ok {
@@ -386,11 +386,29 @@ func (b *Bot) send(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup)
 	if kb != nil {
 		msg.ReplyMarkup = kb
 	} else {
-		kbReply := replyKeyboard()
-		msg.ReplyMarkup = kbReply
+		msg.ReplyMarkup = replyKeyboard()
 	}
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("send error: %v", err)
+	}
+}
+
+func (b *Bot) sendWithInline(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "HTML"
+	msg.DisableWebPagePreview = true
+	msg.ReplyMarkup = replyKeyboard()
+	sent, err := b.api.Send(msg)
+	if err != nil {
+		log.Printf("send error: %v", err)
+		return
+	}
+	if kb != nil {
+		edit := tgbotapi.NewEditMessageText(chatID, sent.MessageID, text)
+		edit.ParseMode = "HTML"
+		edit.DisableWebPagePreview = true
+		edit.ReplyMarkup = kb
+		b.api.Send(edit)
 	}
 }
 
