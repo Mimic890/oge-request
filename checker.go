@@ -45,7 +45,7 @@ func FetchResults(code string) (map[string]Result, error) {
 	if siteLimiter != nil {
 		siteLimiter.Wait()
 	}
-	body := fmt.Sprintf("code=%s&year=26", code)
+	body := fmt.Sprintf("code=%s&year=%s", code, time.Now().Format("06"))
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
