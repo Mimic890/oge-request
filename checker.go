@@ -10,7 +10,13 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-const resultsURL = "https://ege-kostroma.ru/results-z.php"
+var resultsURL string
+var siteDomain string
+
+func InitSiteURL(domain string) {
+	siteDomain = domain
+	resultsURL = "https://" + domain + "/results-z.php"
+}
 
 var httpClient = &http.Client{
 	Timeout: 15 * time.Second,
@@ -176,7 +182,7 @@ func CheckSiteAvailable() (bool, int64) {
 		siteLimiter.Wait()
 	}
 	start := time.Now()
-	req, err := http.NewRequest("GET", "https://ege-kostroma.ru/", nil)
+	req, err := http.NewRequest("GET", "https://"+siteDomain+"/", nil)
 	if err != nil {
 		return false, 0
 	}

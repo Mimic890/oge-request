@@ -18,6 +18,7 @@ type Config struct {
 	AdminID       int64
 	MaxUsers      int
 	MaxRPS        int
+	SiteDomain    string
 	DataDir       string
 }
 
@@ -39,12 +40,17 @@ func LoadConfig() Config {
 	if dataDir == "" {
 		dataDir = "data"
 	}
+	siteDomain := os.Getenv("SITE_DOMAIN")
+	if siteDomain == "" {
+		siteDomain = "ege-kostroma.ru"
+	}
 
 	return Config{
 		TelegramToken: token,
 		AdminID:       adminID,
 		MaxUsers:      maxUsers,
 		MaxRPS:        maxRPS,
+		SiteDomain:    siteDomain,
 		DataDir:       dataDir,
 	}
 }
@@ -88,7 +94,8 @@ func main() {
 	}
 
 	InitRateLimiter(cfg.MaxRPS)
-	log.Printf("rate limit: %d req/s", cfg.MaxRPS)
+	InitSiteURL(cfg.SiteDomain)
+	log.Printf("rate limit: %d req/s, site: %s", cfg.MaxRPS, cfg.SiteDomain)
 
 	store, err := NewStorage(cfg.DataDir)
 	if err != nil {

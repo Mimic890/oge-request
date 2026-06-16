@@ -55,8 +55,24 @@ func NewBot(cfg Config, store *Storage) (*Bot, error) {
 		siteFailures: &SiteFailureTracker{},
 		waiting:      make(map[int64]bool),
 	}
+
+	b.setCommands()
 	go b.poll()
 	return b, nil
+}
+
+func (b *Bot) setCommands() {
+	cmds := []tgbotapi.BotCommand{
+		{Command: "start", Description: "Запуск и главное меню"},
+		{Command: "repo", Description: "Ссылка на код бота"},
+	}
+	if b.cfg.AdminID != 0 {
+		cmds = append(cmds, tgbotapi.BotCommand{
+			Command: "status", Description: "Статус бота (админ)"},
+		)
+	}
+	cfg := tgbotapi.NewSetMyCommands(cmds...)
+	b.api.Request(cfg)
 }
 
 func (b *Bot) poll() {
@@ -109,15 +125,31 @@ func (b *Bot) cmdStart(msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 
 	users := b.store.LoadUsers()
-	kb := mainKeyboard(b.isAdmin(uid))
+	_, hasCode := users[uid]
+	kb := mainKeyboard(b.isAdmin(uid), hasCode)
 
 	if u, ok := users[uid]; ok {
 		masked := maskCode(u.Code)
 		interval := u.GetInterval()
-		txt := msgWelcomeRegistered(masked, interval)
+		txt := msgWelcomeRegistered(b.cfg.SiteDomain, masked, interval)
 		b.send(chatID, txt, kb)
 	} else {
-		b.send(chatID, msgWelcome(), kb)
+		b.send(chatID, msgWelcome(b.cfg.SiteDomain), kb)
+	}
+}
+
+func (b *Bot) cmdStartPlain(chatID int64, uid int64) {
+	users := b.store.LoadUsers()
+	_, hasCode := users[uid]
+	kb := mainKeyboard(b.isAdmin(uid), hasCode)
+
+	if u, ok := users[uid]; ok {
+		masked := maskCode(u.Code)
+		interval := u.GetInterval()
+		txt := msgWelcomeRegistered(b.cfg.SiteDomain, masked, interval)
+		b.send(chatID, txt, kb)
+	} else {
+		b.send(chatID, msgWelcome(b.cfg.SiteDomain), kb)
 	}
 }
 
@@ -134,7 +166,7 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 	case "set_code":
 		users := b.store.LoadUsers()
 		if _, already := users[uid]; !already && b.cfg.MaxUsers > 0 && len(users) >= b.cfg.MaxUsers {
-			b.edit(chatID, msgID, "Лимит пользователей исчерпан. Попробуйте позже.", mainKeyboard(b.isAdmin(uid)))
+			b.edit(chatID, msgID, "Лимит пользователей исчерпан. Попробуйте позже.", mainKeyboard(b.isAdmin(uid), false))
 			return
 		}
 		b.mu.Lock()
@@ -151,8 +183,8 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 	case "disable":
 		kb := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Да, удалить", "disable_confirm"),
-				tgbotapi.NewInlineKeyboardButtonData("Нет, назад", "menu"),
+				tgbotapi.NewInlineKeyboardButtonData("✅ Да, удалить", "disable_confirm"),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Нет, назад", "menu"),
 			),
 		)
 		b.edit(chatID, msgID, msgDeleteConfirm(), &kb)
@@ -164,16 +196,22 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 
 	case "menu":
 		users := b.store.LoadUsers()
-		kb := mainKeyboard(b.isAdmin(uid))
+		_, hasCode := users[uid]
+		kb := mainKeyboard(b.isAdmin(uid), hasCode)
 		if u, ok := users[uid]; ok {
 			masked := maskCode(u.Code)
 			interval := u.GetInterval()
-			b.edit(chatID, msgID, msgWelcomeRegistered(masked, interval), kb)
+			b.edit(chatID, msgID, msgWelcomeRegistered(b.cfg.SiteDomain, masked, interval), kb)
 		} else {
-			b.edit(chatID, msgID, msgWelcome(), kb)
+			b.edit(chatID, msgID, msgWelcome(b.cfg.SiteDomain), kb)
 		}
 
 	case "notif_settings":
+		users := b.store.LoadUsers()
+		if _, hasCode := users[uid]; !hasCode {
+			b.edit(chatID, msgID, "Сначала настройте код участника.", mainKeyboard(b.isAdmin(uid), false))
+			return
+		}
 		enabled := b.store.GetNotifEnabled(uid)
 		interval := b.store.GetCheckInterval(uid)
 		kb := notifSettingsKeyboard(enabled, interval)
@@ -213,11 +251,6 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 		if b.isAdmin(uid) {
 			b.edit(chatID, msgID, b.buildUsersText(), adminStatusMenu())
 		}
-
-	case "admin_ram":
-		if b.isAdmin(uid) {
-			b.edit(chatID, msgID, b.buildRAMText(), adminStatusMenu())
-		}
 	}
 }
 
@@ -231,35 +264,50 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 	b.waiting[uid] = false
 	b.mu.Unlock()
 
-	if !waiting {
+	if waiting {
+		code := strings.TrimSpace(msg.Text)
+		if !codePattern.MatchString(code) {
+			b.reply(chatID, msgInvalidCode())
+			b.mu.Lock()
+			b.waiting[uid] = true
+			b.mu.Unlock()
+			return
+		}
+		b.store.SaveUser(uid, code)
+		b.reply(chatID, msgCodeSaved())
+		b.handleCheck(chatID, uid)
 		return
 	}
 
-	code := strings.TrimSpace(msg.Text)
-	if !codePattern.MatchString(code) {
-		b.reply(chatID, msgInvalidCode())
-		b.mu.Lock()
-		b.waiting[uid] = true
-		b.mu.Unlock()
-		return
+	switch msg.Text {
+	case "📊 Результаты":
+		b.handleCheck(chatID, uid)
+	case "⚙️ Настройки":
+		users := b.store.LoadUsers()
+		if _, hasCode := users[uid]; !hasCode {
+			b.sendRaw(chatID, "Сначала настройте код участника.\nНажмите /start")
+			return
+		}
+		enabled := b.store.GetNotifEnabled(uid)
+		interval := b.store.GetCheckInterval(uid)
+		kb := notifSettingsKeyboard(enabled, interval)
+		b.send(chatID, msgNotifSettings(enabled, interval), kb)
+	case "❓ Помощь":
+		b.cmdStartPlain(chatID, uid)
 	}
-
-	b.store.SaveUser(uid, code)
-	b.reply(chatID, msgCodeSaved())
-	b.handleCheck(chatID, uid)
 }
 
 func (b *Bot) handleCheck(chatID int64, uid int64) {
 	users := b.store.LoadUsers()
 	u, ok := users[uid]
 	if !ok {
-		b.send(chatID, "Сначала настройте код участника.", mainKeyboard(false))
+		b.send(chatID, "Сначала настройте код участника.", mainKeyboard(false, false))
 		return
 	}
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
-		b.send(chatID, msgSiteUnavailable(), mainKeyboard(b.isAdmin(uid)))
+		b.send(chatID, msgSiteUnavailable(), mainKeyboard(b.isAdmin(uid), true))
 		return
 	}
 	if len(results) == 0 {
@@ -279,7 +327,7 @@ func (b *Bot) editCheck(chatID int64, msgID int, uid int64) {
 	users := b.store.LoadUsers()
 	u, ok := users[uid]
 	if !ok {
-		b.edit(chatID, msgID, "Сначала настройте код участника.", mainKeyboard(false))
+		b.edit(chatID, msgID, "Сначала настройте код участника.", mainKeyboard(false, false))
 		return
 	}
 
@@ -304,7 +352,7 @@ func (b *Bot) editCheck(chatID int64, msgID int, uid int64) {
 func (b *Bot) editMyResults(chatID int64, msgID int, uid int64) {
 	results := b.store.GetUserResults(uid)
 	if len(results) == 0 {
-		b.edit(chatID, msgID, msgNoSavedResults(), mainKeyboard(b.isAdmin(uid)))
+		b.edit(chatID, msgID, msgNoSavedResults(), mainKeyboard(b.isAdmin(uid), true))
 		return
 	}
 	b.edit(chatID, msgID, FormatResults(results), resultMenu())
@@ -320,6 +368,9 @@ func (b *Bot) send(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup)
 	msg.DisableWebPagePreview = true
 	if kb != nil {
 		msg.ReplyMarkup = kb
+	} else {
+		kbReply := replyKeyboard()
+		msg.ReplyMarkup = kbReply
 	}
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("send error: %v", err)
@@ -328,6 +379,16 @@ func (b *Bot) send(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup)
 
 func (b *Bot) reply(chatID int64, text string) {
 	b.send(chatID, text, nil)
+}
+
+func (b *Bot) sendRaw(chatID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "HTML"
+	msg.DisableWebPagePreview = true
+	msg.ReplyMarkup = replyKeyboard()
+	if _, err := b.api.Send(msg); err != nil {
+		log.Printf("send error: %v", err)
+	}
 }
 
 func (b *Bot) edit(chatID int64, messageID int, text string, kb *tgbotapi.InlineKeyboardMarkup) {
@@ -349,28 +410,46 @@ func maskCode(code string) string {
 	return code[:4] + "****" + code[len(code)-4:]
 }
 
-func mainKeyboard(isAdmin bool) *tgbotapi.InlineKeyboardMarkup {
+func replyKeyboard() tgbotapi.ReplyKeyboardMarkup {
+	return tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📊 Результаты"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("⚙️ Настройки"),
+			tgbotapi.NewKeyboardButton("❓ Помощь"),
+		),
+	)
+}
+
+func mainKeyboard(isAdmin bool, hasCode bool) *tgbotapi.InlineKeyboardMarkup {
 	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Проверить результаты", "check"),
-			tgbotapi.NewInlineKeyboardButtonData("Мои результаты", "my_results"),
+			tgbotapi.NewInlineKeyboardButtonData("📊 Результаты", "check"),
 		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Настройки уведомлений", "notif_settings"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Настроить код", "set_code"),
-			tgbotapi.NewInlineKeyboardButtonData("Удалить код", "disable"),
-		),
+	}
+	if hasCode {
+		rows = append(rows,
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⚙️ Настройки уведомлений", "notif_settings"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔑 Изменить код", "set_code"),
+				tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить код", "disable"),
+			),
+		)
+	} else {
+		rows = append(rows,
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔑 Настроить код", "set_code"),
+			),
+		)
 	}
 	if isAdmin {
 		rows = append(rows,
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Статус бота", "admin_status"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Пользователи", "admin_users"),
-				tgbotapi.NewInlineKeyboardButtonData("Память", "admin_ram"),
+				tgbotapi.NewInlineKeyboardButtonData("📈 Статус", "admin_status"),
+				tgbotapi.NewInlineKeyboardButtonData("👥 Юзеры", "admin_users"),
 			),
 		)
 	}
@@ -379,9 +458,9 @@ func mainKeyboard(isAdmin bool) *tgbotapi.InlineKeyboardMarkup {
 }
 
 func notifSettingsKeyboard(enabled bool, interval int) *tgbotapi.InlineKeyboardMarkup {
-	toggleText := "Выключить уведомления"
+	toggleText := "🔕 Выключить уведомления"
 	if !enabled {
-		toggleText = "Включить уведомления"
+		toggleText = "🔔 Включить уведомления"
 	}
 
 	interval15 := "15 мин"
@@ -407,7 +486,7 @@ func notifSettingsKeyboard(enabled bool, interval int) *tgbotapi.InlineKeyboardM
 			tgbotapi.NewInlineKeyboardButtonData(interval60, "notif_60"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Назад", "menu"),
+			tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "menu"),
 		),
 	)
 	return &kb
@@ -416,14 +495,13 @@ func notifSettingsKeyboard(enabled bool, interval int) *tgbotapi.InlineKeyboardM
 func adminStatusMenu() *tgbotapi.InlineKeyboardMarkup {
 	kb := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Обновить", "admin_status"),
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "admin_status"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Пользователи", "admin_users"),
-			tgbotapi.NewInlineKeyboardButtonData("Память", "admin_ram"),
+			tgbotapi.NewInlineKeyboardButtonData("👥 Юзеры", "admin_users"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Меню", "menu"),
+			tgbotapi.NewInlineKeyboardButtonData("🏠 Меню", "menu"),
 		),
 	)
 	return &kb
@@ -432,10 +510,10 @@ func adminStatusMenu() *tgbotapi.InlineKeyboardMarkup {
 func resultMenu() *tgbotapi.InlineKeyboardMarkup {
 	kb := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Проверить снова", "check"),
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Проверить снова", "check"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Меню", "menu"),
+			tgbotapi.NewInlineKeyboardButtonData("🏠 Меню", "menu"),
 		),
 	)
 	return &kb
@@ -456,6 +534,7 @@ func (b *Bot) buildStatusText() string {
 	siteOK, siteMs := CheckSiteAvailable()
 
 	return msgAdminStatus(
+		b.cfg.SiteDomain,
 		siteOK, siteMs,
 		hours, mins,
 		totalUsers, activeUsers,
@@ -463,6 +542,7 @@ func (b *Bot) buildStatusText() string {
 		stats.SiteVisitsToday(), stats.TotalSiteVisits(),
 		FormatBytes(stats.TotalBytes()),
 		FormatBytes(int64(alloc)), FormatBytes(int64(sys)),
+		runtime.NumGoroutine(),
 	)
 }
 
@@ -483,18 +563,6 @@ func (b *Bot) buildUsersText() string {
 		sb.WriteString(fmt.Sprintf("  <code>%d</code> — %s (каждые %dм, уведомления: %s)\n", uid, masked, interval, notif))
 	}
 	return sb.String()
-}
-
-func (b *Bot) buildRAMText() string {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return msgAdminRAM(
-		FormatBytes(int64(m.Alloc)),
-		FormatBytes(int64(m.TotalAlloc)),
-		FormatBytes(int64(m.Sys)),
-		m.NumGC,
-		runtime.NumGoroutine(),
-	)
 }
 
 func FormatBytes(b int64) string {

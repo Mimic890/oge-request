@@ -9,71 +9,73 @@ const (
 	repoMessage = "Ссылка на репозиторий с кодом бота"
 )
 
-func msgWelcome() string {
-	return "Привет! Я <b>ОГЭ Монитор</b>\n\nЯ слежу за результатами ОГЭ и сообщаю об изменениях.\n\n" +
+func msgWelcome(siteDomain string) string {
+	return "Привет! Я <b>📊 ОГЭ Монитор</b>\n\n" +
+		"Мониторю результаты на <code>" + siteDomain + "</code>\n\n" +
 		"Настройте код участника для начала работы.\n\n" +
 		"<a href=\"" + repoURL + "\">" + repoMessage + "</a>"
 }
 
-func msgWelcomeRegistered(masked string, interval int) string {
+func msgWelcomeRegistered(siteDomain, masked string, interval int) string {
 	return fmt.Sprintf(
-		"<b>ОГЭ Монитор</b>\n\n"+
-			"Код: <code>%s</code>\n"+
-			"Проверка каждые %d мин\n\n"+
+		"<b>📊 ОГЭ Монитор</b>\n"+
+			"<code>%s</code>\n\n"+
+			"🔑 Код: <code>%s</code>\n"+
+			"⏱ Проверка каждые %d мин\n\n"+
 			"Выберите действие:",
-		masked, interval)
+		siteDomain, masked, interval)
 }
 
 func msgSetCode() string {
-	return "Введите код участника в формате <code>XXXX-XXXX-XXXX</code>\n\n" +
+	return "🔑 Введите код участника в формате <code>XXXX-XXXX-XXXX</code>\n\n" +
 		"Отправьте /start для отмены."
 }
 
 func msgCodeSaved() string {
-	return "Код сохранён. Проверяю результаты..."
+	return "✅ Код сохранён. Проверяю результаты..."
 }
 
 func msgInvalidCode() string {
-	return "Неверный формат. Введите код как <code>XXXX-XXXX-XXXX</code>:"
+	return "❌ Неверный формат. Введите код как <code>XXXX-XXXX-XXXX</code>:"
 }
 
 func msgResultsHeader() string {
-	return "<b>Результаты ОГЭ</b>\n\n"
+	return "<b>📊 Результаты ОГЭ</b>\n\n"
 }
 
 func msgUpdateHeader() string {
-	return "<b>Обновление результатов!</b>\n\n"
+	return "<b>🔄 Обновление результатов!</b>\n\n"
 }
 
 func msgNoResults() string {
-	return "Результаты не найдены."
+	return "📭 Результаты не найдены."
 }
 
 func msgNoSavedResults() string {
-	return "Нет сохранённых результатов.\nНажмите «Проверить результаты»."
+	return "📭 Нет сохранённых результатов.\nНажмите «Проверить результаты»."
 }
 
 func msgSiteUnavailable() string {
-	return "Сайт временно недоступен. Если проблема сохраняется, обратитесь к администратору " + adminTG
+	return "⚠️ Сайт временно недоступен. Если проблема сохраняется, обратитесь к администратору " + adminTG
 }
 
 func msgCodeDeleted() string {
-	return "Код удалён. Бот отключён.\n\nДля повторного использования: /start"
+	return "✅ Код удалён. Бот отключён.\n\nДля повторного использования: /start"
 }
 
 func msgDeleteConfirm() string {
-	return "Удалить код участника и прекратить проверки?"
+	return "⚠️ Удалить код участника и прекратить проверки?"
 }
 
 // Notification settings
 
 func msgNotifSettings(enabled bool, interval int) string {
-	status := "Включены"
+	status := "🔔 Включены"
 	if !enabled {
-		status = "Выключены"
+		status = "🔕 Выключены"
 	}
 	return fmt.Sprintf(
-		"<b>Настройки уведомлений</b>\n\n"+
+		"<b>⚙️ Настройки уведомлений</b>\n\n"+
 			"Уведомления: %s\n"+
 			"Интервал проверки: %d мин",
 		status, interval)
@@ -81,34 +83,34 @@ func msgNotifSettings(enabled bool, interval int) string {
 
 func msgNotifToggled(enabled bool) string {
 	if enabled {
-		return "Уведомления включены. Вы будете получать сообщения об изменениях."
+		return "🔔 Уведомления включены. Вы будете получать сообщения об изменениях."
 	}
-	return "Уведомления выключены. Вы не будете получать автоматические уведомления."
+	return "🔕 Уведомления выключены. Вы не будете получать автоматические уведомления."
 }
 
 func msgIntervalChanged(interval int) string {
-	return fmt.Sprintf("Интервал проверки изменён на %d мин.", interval)
+	return fmt.Sprintf("✅ Интервал проверки изменён на %d мин.", interval)
 }
 
 // Site availability
 
 func msgSiteDownAdmin(failures int) string {
 	return fmt.Sprintf(
-		"<b>Сайт недоступен</b>\n\n"+
+		"<b>🔴 Сайт недоступен</b>\n\n"+
 			"ege-kostroma.ru не отвечает (%d попыток подряд).\n"+
 			"Проверки результатов приостановлены.",
 		failures)
 }
 
 func msgSiteRecoveredAdmin() string {
-	return "<b>Сайт восстановлен</b>\n\nПроверки результатов возобновлены."
+	return "<b>🟢 Сайт восстановлен</b>\n\nПроверки результатов возобновлены."
 }
 
 // Inactivity
 
 func msgInactivityWarning(daysInactive int) string {
 	return fmt.Sprintf(
-		"<b>Уведомление</b>\n\n"+
+		"<b>⚠️ Уведомление</b>\n\n"+
 			"Вы не пользовались ботом %d дней.\n"+
 			"Через 7 дней ваши данные будут удалены.\n"+
 			"Отправьте /start чтобы сохранить аккаунт.",
@@ -116,7 +118,7 @@ func msgInactivityWarning(daysInactive int) string {
 }
 
 func msgInactivityFarewell() string {
-	return "<b>Прощание</b>\n\n" +
+	return "<b>👋 Прощание</b>\n\n" +
 		"Ваши данные будут удалены в течение часа.\n" +
 		"Спасибо за использование бота!\n\n" +
 		"Если захотите вернуться — просто напишите /start"
@@ -124,48 +126,38 @@ func msgInactivityFarewell() string {
 
 // Admin status
 
-func msgAdminStatus(siteOK bool, siteMs int64, hours, mins, totalUsers, activeUsers int, limitStr string, visitsToday, totalVisits int64, traffic, ramAlloc, ramSys string) string {
+func msgAdminStatus(siteDomain string, siteOK bool, siteMs int64, hours, mins, totalUsers, activeUsers int, limitStr string, visitsToday, totalVisits int64, traffic, ramAlloc, ramSys string, goroutines int) string {
 	siteIcon := "🟢"
 	if !siteOK {
 		siteIcon = "🔴"
 	}
+	siteStatus := "Online"
+	if !siteOK {
+		siteStatus = "Offline"
+	}
 	return fmt.Sprintf(
-		"<b>Статус бота</b>\n\n"+
-			"%s Сайт: %s (%dms)\n"+
-			"⏱ Аптайм: %dч %dм\n"+
-			"👥 Пользователей: %d/%s (активных: %d)\n"+
-			"📊 Проверок сегодня: %d\n"+
-			"📈 Всего проверок: %d\n"+
-			"📡 Трафик: %s\n"+
-			"💾 RAM (alloc): %s\n"+
-			"💾 RAM (sys): %s",
-		siteIcon, func() string {
-			if siteOK {
-				return "Доступен"
-			}
-			return "Недоступен"
-		}(), siteMs,
+		"<b>Bot Status</b>\n"+
+			"<code>%s</code>\n\n"+
+			"%s Site: %s (%dms)\n"+
+			"⏱ Uptime: %dh %dm\n"+
+			"👥 Users: %d/%s (active: %d)\n"+
+			"📊 Checks today: %d\n"+
+			"📈 Total checks: %d\n"+
+			"📡 Traffic: %s\n"+
+			"💾 RAM: %s / %s\n"+
+			"⚙️ Goroutines: %d",
+		siteDomain,
+		siteIcon, siteStatus, siteMs,
 		hours, mins,
 		totalUsers, limitStr, activeUsers,
 		visitsToday, totalVisits,
-		traffic, ramAlloc, ramSys)
+		traffic, ramAlloc, ramSys, goroutines)
 }
 
 func msgAdminUsersEmpty() string {
-	return "Нет зарегистрированных пользователей."
+	return "📭 Нет зарегистрированных пользователей."
 }
 
 func msgAdminUsersHeader() string {
-	return "<b>Пользователи:</b>\n\n"
-}
-
-func msgAdminRAM(alloc, totalAlloc, sys string, numGC uint32, goroutines int) string {
-	return fmt.Sprintf(
-		"<b>Память:</b>\n\n"+
-			"Alloc: %s\n"+
-			"TotalAlloc: %s\n"+
-			"Sys: %s\n"+
-			"NumGC: %d\n"+
-			"Goroutines: %d",
-		alloc, totalAlloc, sys, numGC, goroutines)
+	return "<b>👥 Пользователи:</b>\n\n"
 }

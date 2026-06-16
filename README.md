@@ -6,6 +6,8 @@ Telegram-бот для мониторинга результатов ОГЭ на
 
 ## Быстрый старт
 
+> **Внимание:** бот проверен и работает только с сайтом [ege-kostroma.ru](https://ege-kostroma.ru). Если указать другой домен в `SITE_DOMAIN`, бот может не работать — структура HTML-страницы другого сайта может отличаться.
+
 ### 1. Получите токен бота
 
 Отправьте `/newbot` [@BotFather](https://t.me/BotFather), скопируйте токен.
@@ -29,6 +31,7 @@ TG_TOKEN=123456:ABC-DEF...
 ADMIN_ID=123456789
 MAX_USERS=0
 MAX_RPS=2
+SITE_DOMAIN=ege-kostroma.ru
 ```
 
 | Переменная | Описание |
@@ -37,20 +40,30 @@ MAX_RPS=2
 | `ADMIN_ID` | Telegram ID администратора |
 | `MAX_USERS` | Лимит пользователей (0 = без лимита) |
 | `MAX_RPS` | Максимум запросов к сайту в секунду |
+| `SITE_DOMAIN` | Домен сайта с результатами |
 
 ### 4. Запустите
 
-**Docker (рекомендуется):**
-
 ```bash
-make docker
+make start
 ```
 
-**Или напрямую:**
+## Makefile
 
-```bash
-make run
-```
+| Команда | Описание |
+|---|---|
+| `make start` | Запуск бота (собирает образ если нужно) |
+| `make down` | Остановка бота |
+| `make remove` | Остановка + удаление данных и образа |
+| `make logs` | Логи бота в реальном времени |
+| `make restart` | Перезапуск бота |
+| `make status` | Статус контейнера |
+| `make test` | Запуск тестов |
+| `make backup` | Бэкап данных в `backups/` |
+| `make restore FILE=backups/backup-XXX.zip` | Восстановление из бэкапа |
+| `make build` | Сборка Docker-образа без запуска |
+| `make run` | Запуск бинарника напрямую |
+| `make clean` | Удаление бинарника |
 
 ## Команды бота
 
@@ -88,6 +101,13 @@ make run
 - Уведомление администратора при недоступности сайта
 - Список пользователей с настройками
 
+## Бэкап и восстановление
+
+```bash
+make backup                        # создаст backups/backup-20260616-123456.zip
+make restore FILE=backups/backup-20260616-123456.zip  # восстановит данные
+```
+
 ## Структура проекта
 
 ```
@@ -104,11 +124,4 @@ make run
 ├── docker-compose.yml
 ├── .env.example
 └── Makefile
-```
-
-## Остановка и очистка
-
-```bash
-make docker-stop
-rm -rf data/
 ```

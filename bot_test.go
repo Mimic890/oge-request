@@ -370,7 +370,7 @@ func TestMsgFunctions(t *testing.T) {
 		name string
 		fn   func() string
 	}{
-		{"msgWelcome", msgWelcome},
+		{"msgWelcome", func() string { return msgWelcome("ege-kostroma.ru") }},
 		{"msgSetCode", msgSetCode},
 		{"msgCodeSaved", msgCodeSaved},
 		{"msgInvalidCode", msgInvalidCode},
@@ -398,9 +398,12 @@ func TestMsgFunctions(t *testing.T) {
 }
 
 func TestMsgWelcomeRegistered(t *testing.T) {
-	got := msgWelcomeRegistered("3426****3725", 30)
+	got := msgWelcomeRegistered("ege-kostroma.ru", "3426****3725", 30)
 	if got == "" {
 		t.Error("msgWelcomeRegistered returned empty string")
+	}
+	if !contains(got, "ege-kostroma.ru") {
+		t.Error("missing site domain")
 	}
 	if !contains(got, "3426****3725") {
 		t.Error("missing masked code")
