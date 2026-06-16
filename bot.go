@@ -310,7 +310,7 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 			return
 		}
 		log.Printf("[code] user %s set code %s", userLog(msg.From), maskCode(code))
-		b.store.SaveUser(uid, code)
+		b.store.SaveUser(uid, code, msg.From.UserName)
 		b.reply(chatID, msgCodeSaved())
 		b.handleCheck(chatID, uid)
 		return

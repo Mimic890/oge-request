@@ -57,7 +57,7 @@ func NewStorage(dir string) (*Storage, error) {
 	return s, nil
 }
 
-func (s *Storage) SaveUser(uid int64, code string) {
+func (s *Storage) SaveUser(uid int64, code string, username string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, exists := s.users[uid]
@@ -65,6 +65,9 @@ func (s *Storage) SaveUser(uid int64, code string) {
 		entry = UserEntry{Enabled: true, Interval: 15}
 	}
 	entry.Code = code
+	if username != "" {
+		entry.Username = username
+	}
 	entry.LastActive = time.Now()
 	entry.WarningSent = false
 	entry.FarewellSent = false

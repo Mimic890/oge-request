@@ -128,7 +128,7 @@ func TestStorageSaveAndLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s.SaveUser(12345, "3426-5251-3725")
+	s.SaveUser(12345, "3426-5251-3725", "")
 	users := s.LoadUsers()
 	if len(users) != 1 {
 		t.Fatalf("expected 1 user, got %d", len(users))
@@ -163,7 +163,7 @@ func TestStoragePersistence(t *testing.T) {
 	dir := t.TempDir()
 
 	s1, _ := NewStorage(dir)
-	s1.SaveUser(111, "1111-1111-1111")
+	s1.SaveUser(111, "1111-1111-1111", "")
 	s1.UpdateUserResults(111, map[string]Result{
 		"Рус": {Date: "01.06", Score: "20", Grade: "4 ХОРОШО"},
 	})
@@ -182,7 +182,7 @@ func TestStoragePersistence(t *testing.T) {
 func TestStorageJSONFilesExist(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
-	s.SaveUser(999, "9999-9999-9999")
+	s.SaveUser(999, "9999-9999-9999", "")
 	s.UpdateUserResults(999, map[string]Result{"Тест": {Grade: "5"}})
 
 	if _, err := os.Stat(filepath.Join(dir, "users.json")); os.IsNotExist(err) {
@@ -197,8 +197,8 @@ func TestActiveUsers(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
 
-	s.SaveUser(1, "1111-1111-1111")
-	s.SaveUser(2, "2222-2222-2222")
+	s.SaveUser(1, "1111-1111-1111", "")
+	s.SaveUser(2, "2222-2222-2222", "")
 	s.UpdateUserResults(1, map[string]Result{"Мат": {Grade: "5"}})
 
 	total, active := s.ActiveUsers()
@@ -223,7 +223,7 @@ func TestParseResultsEmpty(t *testing.T) {
 func TestUserEntryDefaults(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
-	s.SaveUser(100, "1234-5678-9012")
+	s.SaveUser(100, "1234-5678-9012", "")
 
 	users := s.LoadUsers()
 	entry := users[100]
@@ -257,7 +257,7 @@ func TestGetInterval(t *testing.T) {
 func TestNotifEnabled(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
-	s.SaveUser(200, "1234-5678-9012")
+	s.SaveUser(200, "1234-5678-9012", "")
 
 	if !s.GetNotifEnabled(200) {
 		t.Error("default notif should be enabled")
@@ -277,7 +277,7 @@ func TestNotifEnabled(t *testing.T) {
 func TestCheckInterval(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
-	s.SaveUser(300, "1234-5678-9012")
+	s.SaveUser(300, "1234-5678-9012", "")
 
 	if s.GetCheckInterval(300) != 15 {
 		t.Error("default interval should be 15")
@@ -292,7 +292,7 @@ func TestCheckInterval(t *testing.T) {
 func TestNeedsCheck(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
-	s.SaveUser(400, "1234-5678-9012")
+	s.SaveUser(400, "1234-5678-9012", "")
 
 	if !s.NeedsCheck(400) {
 		t.Error("new user should need check")
@@ -307,7 +307,7 @@ func TestNeedsCheck(t *testing.T) {
 func TestNeedsCheckExpired(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
-	s.SaveUser(500, "1234-5678-9012")
+	s.SaveUser(500, "1234-5678-9012", "")
 	s.SetCheckInterval(500, 1)
 
 	s.mu.Lock()
@@ -324,7 +324,7 @@ func TestNeedsCheckExpired(t *testing.T) {
 func TestUpdateLastActive(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
-	s.SaveUser(600, "1234-5678-9012")
+	s.SaveUser(600, "1234-5678-9012", "")
 
 	users := s.LoadUsers()
 	if users[600].LastActive.IsZero() {
@@ -341,7 +341,7 @@ func TestUpdateLastActive(t *testing.T) {
 func TestWarningSent(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewStorage(dir)
-	s.SaveUser(700, "1234-5678-9012")
+	s.SaveUser(700, "1234-5678-9012", "")
 
 	users := s.LoadUsers()
 	if users[700].WarningSent {
