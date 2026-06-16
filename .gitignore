@@ -1,4 +1,6 @@
 .env
 data/
+backups/
 *.exe
+*.log
 oge-request

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -12,6 +13,32 @@ import (
 
 	"github.com/joho/godotenv"
 )
+
+func setupLogging(dataDir string) {
+	logsDir := filepath.Join(dataDir, "logs")
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		log.Printf("cannot create logs dir: %v, logging to stdout only", err)
+		return
+	}
+
+	date := time.Now().Format("02-01-2006")
+	n := 1
+	for {
+		path := filepath.Join(logsDir, fmt.Sprintf("botLog-%s-%d.log", date, n))
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				log.Printf("cannot open log file: %v, logging to stdout only", err)
+				return
+			}
+			multi := io.MultiWriter(os.Stdout, f)
+			log.SetOutput(multi)
+			log.Printf("log file: %s", path)
+			return
+		}
+		n++
+	}
+}
 
 type Config struct {
 	TelegramToken string
@@ -92,6 +119,8 @@ func main() {
 	if err := validateDataDir(cfg.DataDir); err != nil {
 		log.Fatalf("DATA DIR ERROR:\n%v", err)
 	}
+
+	setupLogging(cfg.DataDir)
 
 	InitRateLimiter(cfg.MaxRPS)
 	InitSiteURL(cfg.SiteDomain)

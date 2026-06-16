@@ -18,6 +18,7 @@ type Storage struct {
 
 type UserEntry struct {
 	Code         string        `json:"code"`
+	Username     string        `json:"username"`
 	Enabled      bool          `json:"enabled"`
 	Interval     int           `json:"interval"`
 	LastActive   time.Time     `json:"last_active"`
@@ -87,6 +88,21 @@ func (s *Storage) UpdateLastActive(uid int64) {
 		entry.FarewellSent = false
 		s.users[uid] = entry
 		s.writeUsersFile()
+	}
+}
+
+func (s *Storage) UpdateUsername(uid int64, username string) {
+	if username == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		if entry.Username != username {
+			entry.Username = username
+			s.users[uid] = entry
+			s.writeUsersFile()
+		}
 	}
 }
 

@@ -94,13 +94,22 @@ func (b *Bot) isAdmin(uid int64) bool {
 	return b.cfg.AdminID != 0 && uid == b.cfg.AdminID
 }
 
-func (b *Bot) touchUser(uid int64) {
+func (b *Bot) touchUser(uid int64, username string) {
 	b.store.UpdateLastActive(uid)
+	b.store.UpdateUsername(uid, username)
+}
+
+func userLog(u *tgbotapi.User) string {
+	if u.UserName != "" {
+		return fmt.Sprintf("@%s (%d)", u.UserName, u.ID)
+	}
+	return fmt.Sprintf("uid:%d", u.ID)
 }
 
 func (b *Bot) onCommand(msg *tgbotapi.Message) {
 	uid := msg.From.ID
-	b.touchUser(uid)
+	b.touchUser(uid, msg.From.UserName)
+	log.Printf("[cmd] /%s from %s", msg.Command(), userLog(msg.From))
 
 	switch msg.Command() {
 	case "start":
@@ -160,7 +169,8 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 	chatID := q.Message.Chat.ID
 	msgID := q.Message.MessageID
 	data := q.Data
-	b.touchUser(uid)
+	b.touchUser(uid, q.From.UserName)
+	log.Printf("[btn] %s from %s", data, userLog(q.From))
 
 	switch data {
 	case "set_code":
@@ -254,7 +264,8 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 func (b *Bot) onText(msg *tgbotapi.Message) {
 	uid := msg.From.ID
 	chatID := msg.Chat.ID
-	b.touchUser(uid)
+	b.touchUser(uid, msg.From.UserName)
+	log.Printf("[text] %q from %s", msg.Text, userLog(msg.From))
 
 	b.mu.Lock()
 	waiting := b.waiting[uid]
@@ -270,6 +281,7 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 			b.mu.Unlock()
 			return
 		}
+		log.Printf("[code] user %s set code %s", userLog(msg.From), maskCode(code))
 		b.store.SaveUser(uid, code)
 		b.reply(chatID, msgCodeSaved())
 		b.handleCheck(chatID, uid)
@@ -387,7 +399,9 @@ func (b *Bot) edit(chatID int64, messageID int, text string, kb *tgbotapi.Inline
 		msg.ReplyMarkup = kb
 	}
 	if _, err := b.api.Send(msg); err != nil {
-		log.Printf("edit error: %v", err)
+		if !strings.Contains(err.Error(), "message is not modified") {
+			log.Printf("edit error: %v", err)
+		}
 	}
 }
 
@@ -563,7 +577,13 @@ func (b *Bot) buildUsersText() string {
 		if !entry.Enabled {
 			notif = "выкл"
 		}
-		sb.WriteString(fmt.Sprintf("  <code>%d</code> — %s (каждые %dм, уведомления: %s)\n", uid, masked, interval, notif))
+		name := fmt.Sprintf("%d", uid)
+		if entry.Username != "" {
+			name = fmt.Sprintf("%d - @%s", uid, entry.Username)
+		}
+		sb.WriteString(fmt.Sprintf("<code>%s</code>\n", name))
+		sb.WriteString(fmt.Sprintf("  Код: %s\n", masked))
+		sb.WriteString(fmt.Sprintf("  Интервал: %d мин | Уведомления: %s\n\n", interval, notif))
 	}
 	return sb.String()
 }
