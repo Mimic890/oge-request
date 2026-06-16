@@ -375,7 +375,7 @@ func TestMsgFunctions(t *testing.T) {
 		{"msgCodeSaved", msgCodeSaved},
 		{"msgInvalidCode", msgInvalidCode},
 		{"msgNoResults", msgNoResults},
-		{"msgSiteUnavailable", msgSiteUnavailable},
+		{"msgSiteUnavailable", func() string { return msgSiteUnavailable("@admin") }},
 		{"msgCodeDeleted", msgCodeDeleted},
 		{"msgDeleteConfirm", msgDeleteConfirm},
 		{"msgResultsHeader", msgResultsHeader},

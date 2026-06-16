@@ -21,6 +21,7 @@ type Bot struct {
 	cfg           Config
 	store         *Storage
 	siteFailures  *SiteFailureTracker
+	adminUsername  string
 	mu            sync.Mutex
 	waiting       map[int64]bool
 }
@@ -57,8 +58,35 @@ func NewBot(cfg Config, store *Storage) (*Bot, error) {
 	}
 
 	b.setCommands()
+	b.resolveAdminUsername()
 	go b.poll()
 	return b, nil
+}
+
+func (b *Bot) resolveAdminUsername() {
+	if b.cfg.AdminID == 0 {
+		return
+	}
+	chat, err := b.api.GetChat(tgbotapi.ChatInfoConfig{
+		ChatConfig: tgbotapi.ChatConfig{ChatID: b.cfg.AdminID},
+	})
+	if err != nil {
+		log.Printf("cannot resolve admin username: %v", err)
+		return
+	}
+	if chat.UserName != "" {
+		b.adminUsername = "@" + chat.UserName
+		log.Printf("admin: %s (id: %d)", b.adminUsername, b.cfg.AdminID)
+	} else {
+		log.Printf("admin id: %d (no username)", b.cfg.AdminID)
+	}
+}
+
+func (b *Bot) adminContact() string {
+	if b.adminUsername != "" {
+		return b.adminUsername
+	}
+	return fmt.Sprintf("id:%d", b.cfg.AdminID)
 }
 
 func (b *Bot) setCommands() {
@@ -302,7 +330,7 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 		kb := notifSettingsKeyboard(enabled, interval)
 		b.send(chatID, msgNotifSettings(enabled, interval), kb)
 	case "❓ Помощь":
-		b.cmdStartPlain(chatID, uid)
+		b.sendRaw(chatID, msgHelp(b.cfg.SiteDomain, b.adminContact()))
 	}
 }
 
@@ -316,7 +344,7 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
-		b.send(chatID, msgSiteUnavailable(), mainKeyboard(b.isAdmin(uid), true))
+		b.send(chatID, msgSiteUnavailable(b.adminContact()), mainKeyboard(b.isAdmin(uid), true))
 		return
 	}
 	if len(results) == 0 {
@@ -342,7 +370,7 @@ func (b *Bot) editCheck(chatID int64, msgID int, uid int64) {
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
-		b.edit(chatID, msgID, msgSiteUnavailable(), resultMenu())
+		b.edit(chatID, msgID, msgSiteUnavailable(b.adminContact()), resultMenu())
 		return
 	}
 	if len(results) == 0 {

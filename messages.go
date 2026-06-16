@@ -5,7 +5,6 @@ import "fmt"
 const (
 	appName     = "ОГЭ Монитор"
 	repoURL     = "https://github.com/Mimic890/oge-request"
-	adminTG     = "@mimic_8"
 	repoMessage = "Ссылка на репозиторий с кодом бота"
 )
 
@@ -14,6 +13,23 @@ func msgWelcome(siteDomain string) string {
 		"Мониторю результаты на <code>" + siteDomain + "</code>\n\n" +
 		"Настройте код участника для начала работы.\n\n" +
 		"<a href=\"" + repoURL + "\">" + repoMessage + "</a>"
+}
+
+func msgHelp(siteDomain, adminContact string) string {
+	return fmt.Sprintf(
+		"<b>📊 ОГЭ Монитор</b>\n"+
+			"<code>%s</code>\n\n"+
+			"Бот проверяет результаты ОГЭ и сообщает об изменениях.\n\n"+
+			"<b>Как пользоваться:</b>\n"+
+			"1. Нажмите «Настроить код»\n"+
+			"2. Введите код участника XXXX-XXXX-XXXX\n"+
+			"3. Бот начнёт проверять результаты\n\n"+
+			"<b>Настройки:</b>\n"+
+			"• Интервал проверки: 15, 30 или 60 мин\n"+
+			"• Уведомления можно включить/выключить\n\n"+
+			"<b>Администратор:</b> %s\n\n"+
+			"<a href=\"%s\">%s</a>",
+		siteDomain, adminContact, repoURL, repoMessage)
 }
 
 func msgWelcomeRegistered(siteDomain, masked string, interval int) string {
@@ -51,8 +67,8 @@ func msgNoResults() string {
 	return "📭 Результаты не найдены."
 }
 
-func msgSiteUnavailable() string {
-	return "⚠️ Сайт временно недоступен. Если проблема сохраняется, обратитесь к администратору " + adminTG
+func msgSiteUnavailable(adminContact string) string {
+	return "⚠️ Сайт временно недоступен. Если проблема сохраняется, обратитесь к администратору " + adminContact
 }
 
 func msgCodeDeleted() string {
