@@ -1,4 +1,4 @@
-.PHONY: build run clean start down remove logs restart status test backup restore
+.PHONY: build run clean start down remove logs restart status test backup restore clear
 
 build:
 	docker compose build
@@ -40,3 +40,9 @@ restore:
 	@mkdir -p data
 	@unzip -o $(FILE) -d .
 	@echo "Restored from $(FILE)"
+
+clear:
+	docker compose down --rmi all 2>/dev/null; true
+	@images=$$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -i 'oge-request\|oge-bot'); \
+	if [ -n "$$images" ]; then echo "$$images" | xargs docker rmi -f 2>/dev/null; fi
+	@echo "All project images removed"

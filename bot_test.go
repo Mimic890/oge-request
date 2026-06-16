@@ -230,8 +230,8 @@ func TestUserEntryDefaults(t *testing.T) {
 	if !entry.Enabled {
 		t.Error("default Enabled should be true")
 	}
-	if entry.Interval != 30 {
-		t.Errorf("default Interval = %d, want 30", entry.Interval)
+	if entry.Interval != 15 {
+		t.Errorf("default Interval = %d, want 15", entry.Interval)
 	}
 }
 
@@ -240,8 +240,8 @@ func TestGetInterval(t *testing.T) {
 		interval int
 		want     int
 	}{
-		{0, 30},
-		{-5, 30},
+		{0, 15},
+		{-5, 15},
 		{15, 15},
 		{60, 60},
 	}
@@ -279,13 +279,13 @@ func TestCheckInterval(t *testing.T) {
 	s, _ := NewStorage(dir)
 	s.SaveUser(300, "1234-5678-9012")
 
-	if s.GetCheckInterval(300) != 30 {
-		t.Error("default interval should be 30")
+	if s.GetCheckInterval(300) != 15 {
+		t.Error("default interval should be 15")
 	}
 
-	s.SetCheckInterval(300, 15)
-	if s.GetCheckInterval(300) != 15 {
-		t.Error("interval should be 15 after SetCheckInterval(15)")
+	s.SetCheckInterval(300, 30)
+	if s.GetCheckInterval(300) != 30 {
+		t.Error("interval should be 30 after SetCheckInterval(30)")
 	}
 }
 

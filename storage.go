@@ -28,7 +28,7 @@ type UserEntry struct {
 
 func (e UserEntry) GetInterval() int {
 	if e.Interval <= 0 {
-		return 30
+		return 15
 	}
 	return e.Interval
 }
@@ -49,7 +49,7 @@ func NewStorage(dir string) (*Storage, error) {
 	for uid := range s.users {
 		entry := s.users[uid]
 		if entry.Interval <= 0 {
-			entry.Interval = 30
+			entry.Interval = 15
 			s.users[uid] = entry
 		}
 	}
@@ -61,7 +61,7 @@ func (s *Storage) SaveUser(uid int64, code string) {
 	defer s.mu.Unlock()
 	entry, exists := s.users[uid]
 	if !exists {
-		entry = UserEntry{Enabled: true, Interval: 30}
+		entry = UserEntry{Enabled: true, Interval: 15}
 	}
 	entry.Code = code
 	entry.LastActive = time.Now()
