@@ -375,7 +375,6 @@ func TestMsgFunctions(t *testing.T) {
 		{"msgCodeSaved", msgCodeSaved},
 		{"msgInvalidCode", msgInvalidCode},
 		{"msgNoResults", msgNoResults},
-		{"msgNoSavedResults", msgNoSavedResults},
 		{"msgSiteUnavailable", msgSiteUnavailable},
 		{"msgCodeDeleted", msgCodeDeleted},
 		{"msgDeleteConfirm", msgDeleteConfirm},

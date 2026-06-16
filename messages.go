@@ -51,10 +51,6 @@ func msgNoResults() string {
 	return "📭 Результаты не найдены."
 }
 
-func msgNoSavedResults() string {
-	return "📭 Нет сохранённых результатов.\nНажмите «Проверить результаты»."
-}
-
 func msgSiteUnavailable() string {
 	return "⚠️ Сайт временно недоступен. Если проблема сохраняется, обратитесь к администратору " + adminTG
 }

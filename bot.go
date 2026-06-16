@@ -177,9 +177,6 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 	case "check":
 		b.editCheck(chatID, msgID, uid)
 
-	case "my_results":
-		b.editMyResults(chatID, msgID, uid)
-
 	case "disable":
 		kb := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -249,7 +246,7 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 
 	case "admin_users":
 		if b.isAdmin(uid) {
-			b.edit(chatID, msgID, b.buildUsersText(), adminStatusMenu())
+			b.edit(chatID, msgID, b.buildUsersText(), adminUsersMenu())
 		}
 	}
 }
@@ -347,15 +344,6 @@ func (b *Bot) editCheck(chatID int64, msgID int, uid int64) {
 		text = msgUpdateHeader() + text
 	}
 	b.edit(chatID, msgID, text, resultMenu())
-}
-
-func (b *Bot) editMyResults(chatID int64, msgID int, uid int64) {
-	results := b.store.GetUserResults(uid)
-	if len(results) == 0 {
-		b.edit(chatID, msgID, msgNoSavedResults(), mainKeyboard(b.isAdmin(uid), true))
-		return
-	}
-	b.edit(chatID, msgID, FormatResults(results), resultMenu())
 }
 
 func (b *Bot) cmdStatus(msg *tgbotapi.Message) {
@@ -499,6 +487,21 @@ func adminStatusMenu() *tgbotapi.InlineKeyboardMarkup {
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("👥 Юзеры", "admin_users"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🏠 Меню", "menu"),
+		),
+	)
+	return &kb
+}
+
+func adminUsersMenu() *tgbotapi.InlineKeyboardMarkup {
+	kb := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "admin_users"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📈 Статус", "admin_status"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🏠 Меню", "menu"),
