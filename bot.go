@@ -195,7 +195,12 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 		b.mu.Lock()
 		b.waiting[uid] = true
 		b.mu.Unlock()
-		b.edit(chatID, msgID, msgSetCode(), nil)
+		kb := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "menu"),
+			),
+		)
+		b.edit(chatID, msgID, msgSetCode(), &kb)
 
 	case "check":
 		b.checkAndSend(chatID, msgID, uid)
@@ -228,8 +233,8 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 
 	case "notif_settings":
 		users := b.store.LoadUsers()
-		if _, hasCode := users[uid]; !hasCode {
-			b.edit(chatID, msgID, "Сначала настройте код участника.", mainKeyboard(b.isAdmin(uid), false))
+		if _, hasCode := users[uid]; !hasCode && !b.isAdmin(uid) {
+			b.edit(chatID, msgID, "Сначала настройте код участника.", noCodeKeyboard())
 			return
 		}
 		enabled := b.store.GetNotifEnabled(uid)
@@ -323,7 +328,7 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 	users := b.store.LoadUsers()
 	u, ok := users[uid]
 	if !ok {
-		b.sendWithInline(chatID, "Сначала настройте код участника.", mainKeyboard(false, false))
+		b.sendWithInline(chatID, "Сначала настройте код участника.", noCodeKeyboard())
 		return
 	}
 
@@ -360,7 +365,7 @@ func (b *Bot) checkAndSend(chatID int64, msgID int, uid int64) {
 	users := b.store.LoadUsers()
 	u, ok := users[uid]
 	if !ok {
-		b.edit(chatID, msgID, "Сначала настройте код участника.", mainKeyboard(false, false))
+		b.edit(chatID, msgID, "Сначала настройте код участника.", noCodeKeyboard())
 		return
 	}
 
@@ -437,17 +442,33 @@ func maskCode(code string) string {
 	return code[:4] + "****" + code[len(code)-4:]
 }
 
+func noCodeKeyboard() *tgbotapi.InlineKeyboardMarkup {
+	kb := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔑 Настроить код", "set_code"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "menu"),
+		),
+	)
+	return &kb
+}
+
 func mainKeyboard(isAdmin bool, hasCode bool) *tgbotapi.InlineKeyboardMarkup {
 	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📊 Результаты", "check"),
 		),
 	}
-	if hasCode {
+	if hasCode || isAdmin {
 		rows = append(rows,
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("⚙️ Настройки уведомлений", "notif_settings"),
 			),
+		)
+	}
+	if hasCode {
+		rows = append(rows,
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("🔑 Изменить код", "set_code"),
 				tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить код", "disable"),
@@ -464,7 +485,7 @@ func mainKeyboard(isAdmin bool, hasCode bool) *tgbotapi.InlineKeyboardMarkup {
 		rows = append(rows,
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("📈 Статус", "admin_status"),
-				tgbotapi.NewInlineKeyboardButtonData("👥 Юзеры", "admin_users"),
+				tgbotapi.NewInlineKeyboardButtonData("👥 Пользователи", "admin_users"),
 			),
 		)
 	}
@@ -521,7 +542,7 @@ func adminStatusMenu() *tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("🔄 Обновить", "admin_status"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("👥 Юзеры", "admin_users"),
+			tgbotapi.NewInlineKeyboardButtonData("👥 Пользователи", "admin_users"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🏠 Меню", "menu"),
