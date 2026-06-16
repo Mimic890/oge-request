@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type Storage struct {
@@ -16,7 +17,26 @@ type Storage struct {
 }
 
 type UserEntry struct {
-	Code string `json:"code"`
+	Code         string        `json:"code"`
+	Enabled      bool          `json:"enabled"`
+	Interval     int           `json:"interval"`
+	LastActive   time.Time     `json:"last_active"`
+	LastCheck    time.Time     `json:"last_check"`
+	WarningSent  bool          `json:"warning_sent"`
+	FarewellSent bool          `json:"farewell_sent"`
+}
+
+func (e UserEntry) GetInterval() int {
+	if e.Interval <= 0 {
+		return 30
+	}
+	return e.Interval
+}
+
+type SiteFailureTracker struct {
+	mu            sync.Mutex
+	Failures      int
+	NotifiedAdmin bool
 }
 
 func NewStorage(dir string) (*Storage, error) {
@@ -26,13 +46,28 @@ func NewStorage(dir string) (*Storage, error) {
 	s := &Storage{dir: dir}
 	s.users = s.readUsersFile()
 	s.state = s.readStateFile()
+	for uid := range s.users {
+		entry := s.users[uid]
+		if entry.Interval <= 0 {
+			entry.Interval = 30
+			s.users[uid] = entry
+		}
+	}
 	return s, nil
 }
 
 func (s *Storage) SaveUser(uid int64, code string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.users[uid] = UserEntry{Code: code}
+	entry, exists := s.users[uid]
+	if !exists {
+		entry = UserEntry{Enabled: true, Interval: 30}
+	}
+	entry.Code = code
+	entry.LastActive = time.Now()
+	entry.WarningSent = false
+	entry.FarewellSent = false
+	s.users[uid] = entry
 	s.writeUsersFile()
 }
 
@@ -41,6 +76,99 @@ func (s *Storage) RemoveUser(uid int64) {
 	defer s.mu.Unlock()
 	delete(s.users, uid)
 	s.writeUsersFile()
+}
+
+func (s *Storage) UpdateLastActive(uid int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.LastActive = time.Now()
+		entry.WarningSent = false
+		entry.FarewellSent = false
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
+}
+
+func (s *Storage) UpdateLastCheck(uid int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.LastCheck = time.Now()
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
+}
+
+func (s *Storage) SetWarningSent(uid int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.WarningSent = true
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
+}
+
+func (s *Storage) SetFarewellSent(uid int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.FarewellSent = true
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
+}
+
+func (s *Storage) SetNotifEnabled(uid int64, enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.Enabled = enabled
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
+}
+
+func (s *Storage) SetCheckInterval(uid int64, interval int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.Interval = interval
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
+}
+
+func (s *Storage) GetNotifEnabled(uid int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		return entry.Enabled
+	}
+	return true
+}
+
+func (s *Storage) GetCheckInterval(uid int64) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		return entry.GetInterval()
+	}
+	return 30
+}
+
+func (s *Storage) NeedsCheck(uid int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.users[uid]
+	if !ok {
+		return false
+	}
+	if entry.LastCheck.IsZero() {
+		return true
+	}
+	return time.Since(entry.LastCheck) >= time.Duration(entry.GetInterval())*time.Minute
 }
 
 func (s *Storage) LoadUsers() map[int64]UserEntry {

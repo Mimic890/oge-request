@@ -119,7 +119,7 @@ func parseResults(html string) (map[string]Result, error) {
 
 func FormatResults(results map[string]Result) string {
 	var sb strings.Builder
-	sb.WriteString("<b>Результаты ОГЭ:</b>\n\n")
+	sb.WriteString(msgResultsHeader())
 	for subj, r := range results {
 		sb.WriteString(fmt.Sprintf("<b>%s</b>\n", subj))
 		if r.Date != "" {

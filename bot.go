@@ -17,11 +17,12 @@ import (
 var codePattern = regexp.MustCompile(`^\d{4}-\d{4}-\d{4}$`)
 
 type Bot struct {
-	api     *tgbotapi.BotAPI
-	cfg     Config
-	store   *Storage
-	mu      sync.Mutex
-	waiting map[int64]bool
+	api           *tgbotapi.BotAPI
+	cfg           Config
+	store         *Storage
+	siteFailures  *SiteFailureTracker
+	mu            sync.Mutex
+	waiting       map[int64]bool
 }
 
 func NewBot(cfg Config, store *Storage) (*Bot, error) {
@@ -48,10 +49,11 @@ func NewBot(cfg Config, store *Storage) (*Bot, error) {
 
 	log.Printf("authorized as @%s", api.Self.UserName)
 	b := &Bot{
-		api:     api,
-		cfg:     cfg,
-		store:   store,
-		waiting: make(map[int64]bool),
+		api:          api,
+		cfg:          cfg,
+		store:        store,
+		siteFailures: &SiteFailureTracker{},
+		waiting:      make(map[int64]bool),
 	}
 	go b.poll()
 	return b, nil
@@ -76,16 +78,27 @@ func (b *Bot) isAdmin(uid int64) bool {
 	return b.cfg.AdminID != 0 && uid == b.cfg.AdminID
 }
 
+func (b *Bot) touchUser(uid int64) {
+	b.store.UpdateLastActive(uid)
+}
+
 func (b *Bot) onCommand(msg *tgbotapi.Message) {
+	uid := msg.From.ID
+	b.touchUser(uid)
+
 	switch msg.Command() {
 	case "start":
 		b.cmdStart(msg)
 	case "status":
-		if b.isAdmin(msg.From.ID) {
+		if b.isAdmin(uid) {
 			b.cmdStatus(msg)
 		} else {
 			b.reply(msg.Chat.ID, "Нет доступа.")
 		}
+	case "repo":
+		b.reply(msg.Chat.ID,
+			"Исходный код бота открыт:\n"+
+				"<a href=\""+repoURL+"\">"+repoMessage+"</a>")
 	default:
 		b.reply(msg.Chat.ID, "Неизвестная команда. Нажмите /start")
 	}
@@ -96,19 +109,16 @@ func (b *Bot) cmdStart(msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 
 	users := b.store.LoadUsers()
-	txt := "Привет! Я бот для мониторинга результатов ОГЭ.\n\n"
+	kb := mainKeyboard(b.isAdmin(uid))
+
 	if u, ok := users[uid]; ok {
 		masked := maskCode(u.Code)
-		txt += fmt.Sprintf("Код: %s\nИнтервал: %d мин\n\nВыберите действие:", masked, int(b.cfg.CheckInterval.Seconds())/60)
+		interval := u.GetInterval()
+		txt := msgWelcomeRegistered(masked, interval)
+		b.send(chatID, txt, kb)
 	} else {
-		txt += fmt.Sprintf("Проверяю результаты каждые %d мин.\n\nНастройте код участника для начала.", int(b.cfg.CheckInterval.Seconds())/60)
+		b.send(chatID, msgWelcome(), kb)
 	}
-
-	if b.isAdmin(uid) {
-		b.send(chatID, txt, adminMenu())
-		return
-	}
-	b.send(chatID, txt, userMenu())
 }
 
 func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
@@ -118,18 +128,19 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 	chatID := q.Message.Chat.ID
 	msgID := q.Message.MessageID
 	data := q.Data
+	b.touchUser(uid)
 
 	switch data {
 	case "set_code":
 		users := b.store.LoadUsers()
 		if _, already := users[uid]; !already && b.cfg.MaxUsers > 0 && len(users) >= b.cfg.MaxUsers {
-			b.edit(chatID, msgID, "Лимит пользователей исчерпан. Попробуйте позже.", userMenu())
+			b.edit(chatID, msgID, "Лимит пользователей исчерпан. Попробуйте позже.", mainKeyboard(b.isAdmin(uid)))
 			return
 		}
 		b.mu.Lock()
 		b.waiting[uid] = true
 		b.mu.Unlock()
-		b.edit(chatID, msgID, "Введите код участника в формате XXXX-XXXX-XXXX:\n\nОтправьте /start для отмены.", nil)
+		b.edit(chatID, msgID, msgSetCode(), nil)
 
 	case "check":
 		b.editCheck(chatID, msgID, uid)
@@ -144,27 +155,54 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 				tgbotapi.NewInlineKeyboardButtonData("Нет, назад", "menu"),
 			),
 		)
-		b.edit(chatID, msgID, "Удалить код участника и прекратить проверки?", &kb)
+		b.edit(chatID, msgID, msgDeleteConfirm(), &kb)
 
 	case "disable_confirm":
 		b.store.RemoveUser(uid)
 		b.store.RemoveState(uid)
-		b.edit(chatID, msgID, "Бот отключён. Код и результаты удалены.\n\nДля повторного использования: /start", nil)
+		b.edit(chatID, msgID, msgCodeDeleted(), nil)
 
 	case "menu":
 		users := b.store.LoadUsers()
-		txt := "Привет! Я бот для мониторинга результатов ОГЭ.\n\n"
+		kb := mainKeyboard(b.isAdmin(uid))
 		if u, ok := users[uid]; ok {
 			masked := maskCode(u.Code)
-			txt += fmt.Sprintf("Код: %s\nИнтервал: %d мин\n\nВыберите действие:", masked, int(b.cfg.CheckInterval.Seconds())/60)
+			interval := u.GetInterval()
+			b.edit(chatID, msgID, msgWelcomeRegistered(masked, interval), kb)
 		} else {
-			txt += fmt.Sprintf("Проверяю результаты каждые %d мин.\n\nНастройте код участника для начала.", int(b.cfg.CheckInterval.Seconds())/60)
+			b.edit(chatID, msgID, msgWelcome(), kb)
 		}
-		if b.isAdmin(uid) {
-			b.edit(chatID, msgID, txt, adminMenu())
-		} else {
-			b.edit(chatID, msgID, txt, userMenu())
-		}
+
+	case "notif_settings":
+		enabled := b.store.GetNotifEnabled(uid)
+		interval := b.store.GetCheckInterval(uid)
+		kb := notifSettingsKeyboard(enabled, interval)
+		b.edit(chatID, msgID, msgNotifSettings(enabled, interval), kb)
+
+	case "notif_toggle":
+		enabled := b.store.GetNotifEnabled(uid)
+		b.store.SetNotifEnabled(uid, !enabled)
+		newEnabled := !enabled
+		kb := notifSettingsKeyboard(newEnabled, b.store.GetCheckInterval(uid))
+		b.edit(chatID, msgID, msgNotifToggled(newEnabled)+"\n\n"+msgNotifSettings(newEnabled, b.store.GetCheckInterval(uid)), kb)
+
+	case "notif_15":
+		b.store.SetCheckInterval(uid, 15)
+		enabled := b.store.GetNotifEnabled(uid)
+		kb := notifSettingsKeyboard(enabled, 15)
+		b.edit(chatID, msgID, msgIntervalChanged(15)+"\n\n"+msgNotifSettings(enabled, 15), kb)
+
+	case "notif_30":
+		b.store.SetCheckInterval(uid, 30)
+		enabled := b.store.GetNotifEnabled(uid)
+		kb := notifSettingsKeyboard(enabled, 30)
+		b.edit(chatID, msgID, msgIntervalChanged(30)+"\n\n"+msgNotifSettings(enabled, 30), kb)
+
+	case "notif_60":
+		b.store.SetCheckInterval(uid, 60)
+		enabled := b.store.GetNotifEnabled(uid)
+		kb := notifSettingsKeyboard(enabled, 60)
+		b.edit(chatID, msgID, msgIntervalChanged(60)+"\n\n"+msgNotifSettings(enabled, 60), kb)
 
 	case "admin_status":
 		if b.isAdmin(uid) {
@@ -186,6 +224,7 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 func (b *Bot) onText(msg *tgbotapi.Message) {
 	uid := msg.From.ID
 	chatID := msg.Chat.ID
+	b.touchUser(uid)
 
 	b.mu.Lock()
 	waiting := b.waiting[uid]
@@ -198,7 +237,7 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 
 	code := strings.TrimSpace(msg.Text)
 	if !codePattern.MatchString(code) {
-		b.reply(chatID, "Неверный формат. Введите код как XXXX-XXXX-XXXX:")
+		b.reply(chatID, msgInvalidCode())
 		b.mu.Lock()
 		b.waiting[uid] = true
 		b.mu.Unlock()
@@ -206,7 +245,7 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 	}
 
 	b.store.SaveUser(uid, code)
-	b.reply(chatID, "Код сохранён. Проверяю результаты...")
+	b.reply(chatID, msgCodeSaved())
 	b.handleCheck(chatID, uid)
 }
 
@@ -214,24 +253,24 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 	users := b.store.LoadUsers()
 	u, ok := users[uid]
 	if !ok {
-		b.send(chatID, "Сначала настройте код участника.", userMenu())
+		b.send(chatID, "Сначала настройте код участника.", mainKeyboard(false))
 		return
 	}
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
-		b.send(chatID, friendlyError(err), resultMenu())
+		b.send(chatID, msgSiteUnavailable(), mainKeyboard(b.isAdmin(uid)))
 		return
 	}
 	if len(results) == 0 {
-		b.send(chatID, "Результаты не найдены.", resultMenu())
+		b.send(chatID, msgNoResults(), resultMenu())
 		return
 	}
 
 	changed := b.store.UpdateUserResults(uid, results)
 	text := FormatResults(results)
 	if len(changed) > 0 {
-		text = "Обнаружены изменения!\n\n" + text
+		text = msgUpdateHeader() + text
 	}
 	b.send(chatID, text, resultMenu())
 }
@@ -240,24 +279,24 @@ func (b *Bot) editCheck(chatID int64, msgID int, uid int64) {
 	users := b.store.LoadUsers()
 	u, ok := users[uid]
 	if !ok {
-		b.edit(chatID, msgID, "Сначала настройте код участника.", userMenu())
+		b.edit(chatID, msgID, "Сначала настройте код участника.", mainKeyboard(false))
 		return
 	}
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
-		b.edit(chatID, msgID, friendlyError(err), resultMenu())
+		b.edit(chatID, msgID, msgSiteUnavailable(), resultMenu())
 		return
 	}
 	if len(results) == 0 {
-		b.edit(chatID, msgID, "Результаты не найдены.", resultMenu())
+		b.edit(chatID, msgID, msgNoResults(), resultMenu())
 		return
 	}
 
 	changed := b.store.UpdateUserResults(uid, results)
 	text := FormatResults(results)
 	if len(changed) > 0 {
-		text = "Обнаружены изменения!\n\n" + text
+		text = msgUpdateHeader() + text
 	}
 	b.edit(chatID, msgID, text, resultMenu())
 }
@@ -265,7 +304,7 @@ func (b *Bot) editCheck(chatID int64, msgID int, uid int64) {
 func (b *Bot) editMyResults(chatID int64, msgID int, uid int64) {
 	results := b.store.GetUserResults(uid)
 	if len(results) == 0 {
-		b.edit(chatID, msgID, "Нет сохранённых результатов.\nНажмите «Проверить результаты».", userMenu())
+		b.edit(chatID, msgID, msgNoSavedResults(), mainKeyboard(b.isAdmin(uid)))
 		return
 	}
 	b.edit(chatID, msgID, FormatResults(results), resultMenu())
@@ -278,6 +317,7 @@ func (b *Bot) cmdStatus(msg *tgbotapi.Message) {
 func (b *Bot) send(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "HTML"
+	msg.DisableWebPagePreview = true
 	if kb != nil {
 		msg.ReplyMarkup = kb
 	}
@@ -293,6 +333,7 @@ func (b *Bot) reply(chatID int64, text string) {
 func (b *Bot) edit(chatID int64, messageID int, text string, kb *tgbotapi.InlineKeyboardMarkup) {
 	msg := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	msg.ParseMode = "HTML"
+	msg.DisableWebPagePreview = true
 	if kb != nil {
 		msg.ReplyMarkup = kb
 	}
@@ -308,40 +349,65 @@ func maskCode(code string) string {
 	return code[:4] + "****" + code[len(code)-4:]
 }
 
-func userMenu() *tgbotapi.InlineKeyboardMarkup {
-	kb := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Настроить код", "set_code"),
-		),
+func mainKeyboard(isAdmin bool) *tgbotapi.InlineKeyboardMarkup {
+	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("Проверить результаты", "check"),
 			tgbotapi.NewInlineKeyboardButtonData("Мои результаты", "my_results"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Отключить бота", "disable"),
+			tgbotapi.NewInlineKeyboardButtonData("Настройки уведомлений", "notif_settings"),
 		),
-	)
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Настроить код", "set_code"),
+			tgbotapi.NewInlineKeyboardButtonData("Удалить код", "disable"),
+		),
+	}
+	if isAdmin {
+		rows = append(rows,
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Статус бота", "admin_status"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("Пользователи", "admin_users"),
+				tgbotapi.NewInlineKeyboardButtonData("Память", "admin_ram"),
+			),
+		)
+	}
+	kb := tgbotapi.NewInlineKeyboardMarkup(rows...)
 	return &kb
 }
 
-func adminMenu() *tgbotapi.InlineKeyboardMarkup {
+func notifSettingsKeyboard(enabled bool, interval int) *tgbotapi.InlineKeyboardMarkup {
+	toggleText := "Выключить уведомления"
+	if !enabled {
+		toggleText = "Включить уведомления"
+	}
+
+	interval15 := "15 мин"
+	interval30 := "30 мин"
+	interval60 := "60 мин"
+	if interval == 15 {
+		interval15 = "15 мин ✓"
+	}
+	if interval == 30 {
+		interval30 = "30 мин ✓"
+	}
+	if interval == 60 {
+		interval60 = "60 мин ✓"
+	}
+
 	kb := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Настроить код", "set_code"),
+			tgbotapi.NewInlineKeyboardButtonData(toggleText, "notif_toggle"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Проверить результаты", "check"),
-			tgbotapi.NewInlineKeyboardButtonData("Мои результаты", "my_results"),
+			tgbotapi.NewInlineKeyboardButtonData(interval15, "notif_15"),
+			tgbotapi.NewInlineKeyboardButtonData(interval30, "notif_30"),
+			tgbotapi.NewInlineKeyboardButtonData(interval60, "notif_60"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Отключить бота", "disable"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Статус бота", "admin_status"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("Пользователи", "admin_users"),
-			tgbotapi.NewInlineKeyboardButtonData("Память", "admin_ram"),
+			tgbotapi.NewInlineKeyboardButtonData("Назад", "menu"),
 		),
 	)
 	return &kb
@@ -388,55 +454,41 @@ func (b *Bot) buildStatusText() string {
 	}
 
 	siteOK, siteMs := CheckSiteAvailable()
-	siteStatus := "Доступен"
-	if !siteOK {
-		siteStatus = "Недоступен"
-	}
 
-	return fmt.Sprintf(
-		"<b>Статус бота</b>\n\n"+
-			"Сайт ege-kostroma.ru: %s (%dms)\n"+
-			"Аптайм: %dч %dм\n"+
-			"Пользователей: %d/%s (активных: %d)\n"+
-			"Проверок сайта сегодня: %d\n"+
-			"Всего проверок: %d\n"+
-			"Трафик: %s\n"+
-			"RAM (alloc): %s\n"+
-			"RAM (sys): %s",
-		siteStatus, siteMs,
+	return msgAdminStatus(
+		siteOK, siteMs,
 		hours, mins,
-		totalUsers, limitStr, activeUsers,
-		stats.SiteVisitsToday(),
-		stats.TotalSiteVisits(),
+		totalUsers, activeUsers,
+		limitStr,
+		stats.SiteVisitsToday(), stats.TotalSiteVisits(),
 		FormatBytes(stats.TotalBytes()),
-		FormatBytes(int64(alloc)),
-		FormatBytes(int64(sys)),
+		FormatBytes(int64(alloc)), FormatBytes(int64(sys)),
 	)
 }
 
 func (b *Bot) buildUsersText() string {
 	users := b.store.LoadUsers()
 	if len(users) == 0 {
-		return "Нет зарегистрированных пользователей."
+		return msgAdminUsersEmpty()
 	}
-	text := "<b>Пользователи:</b>\n\n"
+	var sb strings.Builder
+	sb.WriteString(msgAdminUsersHeader())
 	for uid, entry := range users {
 		masked := maskCode(entry.Code)
-		text += fmt.Sprintf("  <code>%d</code> — %s\n", uid, masked)
+		interval := entry.GetInterval()
+		notif := "вкл"
+		if !entry.Enabled {
+			notif = "выкл"
+		}
+		sb.WriteString(fmt.Sprintf("  <code>%d</code> — %s (каждые %dм, уведомления: %s)\n", uid, masked, interval, notif))
 	}
-	return text
+	return sb.String()
 }
 
 func (b *Bot) buildRAMText() string {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	return fmt.Sprintf(
-		"<b>Память:</b>\n\n"+
-			"Alloc: %s\n"+
-			"TotalAlloc: %s\n"+
-			"Sys: %s\n"+
-			"NumGC: %d\n"+
-			"Goroutines: %d",
+	return msgAdminRAM(
 		FormatBytes(int64(m.Alloc)),
 		FormatBytes(int64(m.TotalAlloc)),
 		FormatBytes(int64(m.Sys)),

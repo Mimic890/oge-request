@@ -18,7 +18,6 @@ type Config struct {
 	AdminID       int64
 	MaxUsers      int
 	MaxRPS        int
-	CheckInterval time.Duration
 	DataDir       string
 }
 
@@ -36,10 +35,6 @@ func LoadConfig() Config {
 	if maxRPS <= 0 {
 		maxRPS = 2
 	}
-	interval, _ := strconv.Atoi(os.Getenv("CHECK_INTERVAL"))
-	if interval <= 0 {
-		interval = 600
-	}
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
 		dataDir = "data"
@@ -50,7 +45,6 @@ func LoadConfig() Config {
 		AdminID:       adminID,
 		MaxUsers:      maxUsers,
 		MaxRPS:        maxRPS,
-		CheckInterval: time.Duration(interval) * time.Second,
 		DataDir:       dataDir,
 	}
 }
@@ -115,9 +109,10 @@ func main() {
 		time.Sleep(backoff)
 	}
 
-	go RunChecker(cfg, store, bot)
+	go RunChecker(store, bot)
+	go RunInactivityManager(store, bot)
 
-	log.Printf("bot started, interval=%s, max_users=%d", cfg.CheckInterval, cfg.MaxUsers)
+	log.Printf("bot started, max_users=%d", cfg.MaxUsers)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
