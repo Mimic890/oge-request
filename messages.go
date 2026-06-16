@@ -81,16 +81,21 @@ func msgDeleteConfirm() string {
 
 // Notification settings
 
-func msgNotifSettings(enabled bool, interval int) string {
+func msgNotifSettings(enabled bool, interval int, errorsEnabled bool) string {
 	status := "🔔 Включены"
 	if !enabled {
 		status = "🔕 Выключены"
 	}
+	errStatus := "🔔 Вкл"
+	if !errorsEnabled {
+		errStatus = "🔕 Выкл"
+	}
 	return fmt.Sprintf(
 		"<b>⚙️ Настройки уведомлений</b>\n\n"+
 			"Уведомления: %s\n"+
-			"Интервал проверки: %d мин",
-		status, interval)
+			"Интервал проверки: %d мин\n"+
+			"Ошибки админу: %s",
+		status, interval, errStatus)
 }
 
 func msgNotifToggled(enabled bool) string {
@@ -102,6 +107,13 @@ func msgNotifToggled(enabled bool) string {
 
 func msgIntervalChanged(interval int) string {
 	return fmt.Sprintf("✅ Интервал проверки изменён на %d мин.", interval)
+}
+
+func msgErrorsToggled(enabled bool) string {
+	if enabled {
+		return "🔔 Уведомления об ошибках включены. Администратор будет получать сообщения при ошибках проверки."
+	}
+	return "🔕 Уведомления об ошибках выключены."
 }
 
 // Site availability

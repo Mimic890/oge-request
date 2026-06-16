@@ -413,7 +413,7 @@ func TestMsgWelcomeRegistered(t *testing.T) {
 }
 
 func TestMsgNotifSettings(t *testing.T) {
-	got := msgNotifSettings(true, 15)
+	got := msgNotifSettings(true, 15, true)
 	if !contains(got, "15") {
 		t.Error("missing interval")
 	}
@@ -421,7 +421,7 @@ func TestMsgNotifSettings(t *testing.T) {
 		t.Error("missing enabled status")
 	}
 
-	got = msgNotifSettings(false, 60)
+	got = msgNotifSettings(false, 60, false)
 	if !contains(got, "60") {
 		t.Error("missing interval")
 	}

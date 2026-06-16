@@ -25,6 +25,7 @@ type UserEntry struct {
 	LastCheck    time.Time     `json:"last_check"`
 	WarningSent  bool          `json:"warning_sent"`
 	FarewellSent bool          `json:"farewell_sent"`
+	ErrorsEnabled bool         `json:"errors_enabled"`
 }
 
 func (e UserEntry) GetInterval() int {
@@ -180,6 +181,25 @@ func (s *Storage) GetCheckInterval(uid int64) int {
 		return entry.GetInterval()
 	}
 	return 15
+}
+
+func (s *Storage) GetErrorsEnabled(uid int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		return entry.ErrorsEnabled
+	}
+	return true
+}
+
+func (s *Storage) SetErrorsEnabled(uid int64, enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.ErrorsEnabled = enabled
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
 }
 
 func (s *Storage) NeedsCheck(uid int64) bool {

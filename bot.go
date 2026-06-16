@@ -234,33 +234,46 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 		}
 		enabled := b.store.GetNotifEnabled(uid)
 		interval := b.store.GetCheckInterval(uid)
-		kb := notifSettingsKeyboard(enabled, interval)
-		b.edit(chatID, msgID, msgNotifSettings(enabled, interval), kb)
+		errors := b.store.GetErrorsEnabled(uid)
+		kb := notifSettingsKeyboard(enabled, interval, errors)
+		b.edit(chatID, msgID, msgNotifSettings(enabled, interval, errors), kb)
 
 	case "notif_toggle":
 		enabled := b.store.GetNotifEnabled(uid)
 		b.store.SetNotifEnabled(uid, !enabled)
 		newEnabled := !enabled
-		kb := notifSettingsKeyboard(newEnabled, b.store.GetCheckInterval(uid))
-		b.edit(chatID, msgID, msgNotifToggled(newEnabled)+"\n\n"+msgNotifSettings(newEnabled, b.store.GetCheckInterval(uid)), kb)
+		errors := b.store.GetErrorsEnabled(uid)
+		kb := notifSettingsKeyboard(newEnabled, b.store.GetCheckInterval(uid), errors)
+		b.edit(chatID, msgID, msgNotifToggled(newEnabled)+"\n\n"+msgNotifSettings(newEnabled, b.store.GetCheckInterval(uid), errors), kb)
+
+	case "notif_errors_toggle":
+		errors := b.store.GetErrorsEnabled(uid)
+		b.store.SetErrorsEnabled(uid, !errors)
+		newErrors := !errors
+		enabled := b.store.GetNotifEnabled(uid)
+		kb := notifSettingsKeyboard(enabled, b.store.GetCheckInterval(uid), newErrors)
+		b.edit(chatID, msgID, msgErrorsToggled(newErrors)+"\n\n"+msgNotifSettings(enabled, b.store.GetCheckInterval(uid), newErrors), kb)
 
 	case "notif_15":
 		b.store.SetCheckInterval(uid, 15)
 		enabled := b.store.GetNotifEnabled(uid)
-		kb := notifSettingsKeyboard(enabled, 15)
-		b.edit(chatID, msgID, msgIntervalChanged(15)+"\n\n"+msgNotifSettings(enabled, 15), kb)
+		errors := b.store.GetErrorsEnabled(uid)
+		kb := notifSettingsKeyboard(enabled, 15, errors)
+		b.edit(chatID, msgID, msgIntervalChanged(15)+"\n\n"+msgNotifSettings(enabled, 15, errors), kb)
 
 	case "notif_30":
 		b.store.SetCheckInterval(uid, 30)
 		enabled := b.store.GetNotifEnabled(uid)
-		kb := notifSettingsKeyboard(enabled, 30)
-		b.edit(chatID, msgID, msgIntervalChanged(30)+"\n\n"+msgNotifSettings(enabled, 30), kb)
+		errors := b.store.GetErrorsEnabled(uid)
+		kb := notifSettingsKeyboard(enabled, 30, errors)
+		b.edit(chatID, msgID, msgIntervalChanged(30)+"\n\n"+msgNotifSettings(enabled, 30, errors), kb)
 
 	case "notif_60":
 		b.store.SetCheckInterval(uid, 60)
 		enabled := b.store.GetNotifEnabled(uid)
-		kb := notifSettingsKeyboard(enabled, 60)
-		b.edit(chatID, msgID, msgIntervalChanged(60)+"\n\n"+msgNotifSettings(enabled, 60), kb)
+		errors := b.store.GetErrorsEnabled(uid)
+		kb := notifSettingsKeyboard(enabled, 60, errors)
+		b.edit(chatID, msgID, msgIntervalChanged(60)+"\n\n"+msgNotifSettings(enabled, 60, errors), kb)
 
 	case "admin_status":
 		if b.isAdmin(uid) {
@@ -316,6 +329,17 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
+		if b.store.GetErrorsEnabled(uid) {
+			name := fmt.Sprintf("%d", uid)
+			if u.Username != "" {
+				name = fmt.Sprintf("%d (@%s)", uid, u.Username)
+			}
+			b.sendSilent(b.cfg.AdminID,
+				fmt.Sprintf("⚠️ Ошибка проверки\n\n"+
+					"Пользователь: %s\n"+
+					"Код: %s\n"+
+					"%v", name, maskCode(u.Code), err))
+		}
 		b.sendWithInline(chatID, msgSiteUnavailable(b.adminContact()), mainKeyboard(b.isAdmin(uid), true))
 		return
 	}
@@ -448,7 +472,7 @@ func mainKeyboard(isAdmin bool, hasCode bool) *tgbotapi.InlineKeyboardMarkup {
 	return &kb
 }
 
-func notifSettingsKeyboard(enabled bool, interval int) *tgbotapi.InlineKeyboardMarkup {
+func notifSettingsKeyboard(enabled bool, interval int, errorsEnabled bool) *tgbotapi.InlineKeyboardMarkup {
 	toggleText := "🔕 Выключить уведомления"
 	if !enabled {
 		toggleText = "🔔 Включить уведомления"
@@ -467,6 +491,11 @@ func notifSettingsKeyboard(enabled bool, interval int) *tgbotapi.InlineKeyboardM
 		interval60 = "60 мин ✓"
 	}
 
+	errText := "🔕 Ошибки: выкл"
+	if errorsEnabled {
+		errText = "🔔 Ошибки: вкл"
+	}
+
 	kb := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(toggleText, "notif_toggle"),
@@ -475,6 +504,9 @@ func notifSettingsKeyboard(enabled bool, interval int) *tgbotapi.InlineKeyboardM
 			tgbotapi.NewInlineKeyboardButtonData(interval15, "notif_15"),
 			tgbotapi.NewInlineKeyboardButtonData(interval30, "notif_30"),
 			tgbotapi.NewInlineKeyboardButtonData(interval60, "notif_60"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(errText, "notif_errors_toggle"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("◀️ Назад", "menu"),
