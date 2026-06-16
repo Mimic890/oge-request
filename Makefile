@@ -1,4 +1,4 @@
-.PHONY: build run clean start down remove logs restart status test backup restore clear
+.PHONY: build run clean start down remove logs restart status ps stats test backup restore clear
 
 build:
 	docker compose build
@@ -26,6 +26,12 @@ restart:
 
 status:
 	docker compose ps
+
+ps:
+	docker compose ps
+
+stats:
+	docker compose stats
 
 test:
 	go test ./... -count=1 -v
