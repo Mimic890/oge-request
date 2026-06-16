@@ -169,9 +169,9 @@ func (b *Bot) cmdStart(msg *tgbotapi.Message) {
 		masked := maskCode(u.Code)
 		interval := u.GetInterval()
 		txt := msgWelcomeRegistered(b.cfg.SiteDomain, masked, interval)
-		b.send(chatID, txt, kb)
+		b.sendWithInline(chatID, txt, kb)
 	} else {
-		b.send(chatID, msgWelcome(b.cfg.SiteDomain), kb)
+		b.sendWithInline(chatID, msgWelcome(b.cfg.SiteDomain), kb)
 	}
 }
 
@@ -317,7 +317,7 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 		enabled := b.store.GetNotifEnabled(uid)
 		interval := b.store.GetCheckInterval(uid)
 		kb := notifSettingsKeyboard(enabled, interval)
-		b.send(chatID, msgNotifSettings(enabled, interval), kb)
+		b.sendWithInline(chatID, msgNotifSettings(enabled, interval), kb)
 	case "❓ Помощь":
 		b.sendRaw(chatID, msgHelp(b.cfg.SiteDomain, b.adminContact()))
 	}
@@ -376,7 +376,7 @@ func (b *Bot) checkAndSend(chatID int64, msgID int, uid int64) {
 }
 
 func (b *Bot) cmdStatus(msg *tgbotapi.Message) {
-	b.send(msg.Chat.ID, b.buildStatusText(), adminStatusMenu())
+	b.sendWithInline(msg.Chat.ID, b.buildStatusText(), adminStatusMenu())
 }
 
 func (b *Bot) send(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup) {
