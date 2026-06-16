@@ -355,16 +355,6 @@ func TestWarningSent(t *testing.T) {
 	}
 }
 
-func TestSiteFailureTracker(t *testing.T) {
-	tracker := &SiteFailureTracker{}
-	if tracker.Failures != 0 {
-		t.Error("initial Failures should be 0")
-	}
-	if tracker.NotifiedAdmin {
-		t.Error("initial NotifiedAdmin should be false")
-	}
-}
-
 func TestMsgFunctions(t *testing.T) {
 	tests := []struct {
 		name string
@@ -381,7 +371,6 @@ func TestMsgFunctions(t *testing.T) {
 		{"msgResultsHeader", msgResultsHeader},
 		{"msgUpdateHeader", msgUpdateHeader},
 		{"msgInactivityFarewell", msgInactivityFarewell},
-		{"msgSiteRecoveredAdmin", msgSiteRecoveredAdmin},
 		{"msgNotifToggled(true)", func() string { return msgNotifToggled(true) }},
 		{"msgNotifToggled(false)", func() string { return msgNotifToggled(false) }},
 		{"msgIntervalChanged(15)", func() string { return msgIntervalChanged(15) }},
@@ -427,13 +416,6 @@ func TestMsgNotifSettings(t *testing.T) {
 	}
 	if !contains(got, "Выключены") {
 		t.Error("missing disabled status")
-	}
-}
-
-func TestMsgSiteDownAdmin(t *testing.T) {
-	got := msgSiteDownAdmin(3)
-	if !contains(got, "3") {
-		t.Error("missing failure count")
 	}
 }
 

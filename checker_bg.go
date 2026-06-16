@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -22,33 +23,6 @@ func checkAll(store *Storage, bot *Bot) {
 
 	log.Printf("check cycle: %d users", len(users))
 
-	siteOK, _ := CheckSiteAvailable()
-	if !siteOK {
-		bot.siteFailures.mu.Lock()
-		bot.siteFailures.Failures++
-		failures := bot.siteFailures.Failures
-		notified := bot.siteFailures.NotifiedAdmin
-		bot.siteFailures.mu.Unlock()
-
-		log.Printf("site check failed (%d consecutive)", failures)
-		if failures >= 2 && !notified {
-			bot.siteFailures.mu.Lock()
-			bot.siteFailures.NotifiedAdmin = true
-			bot.siteFailures.mu.Unlock()
-			bot.send(bot.cfg.AdminID, msgSiteDownAdmin(failures), nil)
-		}
-		return
-	}
-
-	bot.siteFailures.mu.Lock()
-	if bot.siteFailures.Failures > 0 && bot.siteFailures.NotifiedAdmin {
-		log.Printf("site recovered after %d failures", bot.siteFailures.Failures)
-		bot.send(bot.cfg.AdminID, msgSiteRecoveredAdmin(), nil)
-	}
-	bot.siteFailures.Failures = 0
-	bot.siteFailures.NotifiedAdmin = false
-	bot.siteFailures.mu.Unlock()
-
 	checked := 0
 	for uid, entry := range users {
 		if uid == bot.cfg.AdminID {
@@ -68,6 +42,7 @@ func checkAll(store *Storage, bot *Bot) {
 			continue
 		}
 
+		store.ResetErrors(uid)
 		store.UpdateLastCheck(uid)
 		changed := store.UpdateUserResults(uid, results)
 		if len(changed) > 0 {
@@ -96,4 +71,19 @@ func checkAll(store *Storage, bot *Bot) {
 	if checked > 0 {
 		log.Printf("checked %d users", checked)
 	}
+}
+
+func notifyAdminError(bot *Bot, uid int64, code string, username string, err error) {
+	if !bot.store.GetErrorsEnabled(uid) {
+		return
+	}
+	name := fmt.Sprintf("%d", uid)
+	if username != "" {
+		name = fmt.Sprintf("%d (@%s)", uid, username)
+	}
+	bot.sendSilent(bot.cfg.AdminID,
+		fmt.Sprintf("⚠️ Ошибка проверки\n\n"+
+			"Пользователь: %s\n"+
+			"Код: %s\n"+
+			"%v", name, maskCode(code), err))
 }
