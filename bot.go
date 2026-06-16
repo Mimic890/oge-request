@@ -304,23 +304,6 @@ func (b *Bot) onText(msg *tgbotapi.Message) {
 		b.handleCheck(chatID, uid)
 		return
 	}
-
-	switch msg.Text {
-	case "📊 Результаты":
-		b.handleCheck(chatID, uid)
-	case "⚙️ Настройки":
-		users := b.store.LoadUsers()
-		if _, hasCode := users[uid]; !hasCode {
-			b.sendRaw(chatID, "Сначала настройте код участника.\nНажмите /start")
-			return
-		}
-		enabled := b.store.GetNotifEnabled(uid)
-		interval := b.store.GetCheckInterval(uid)
-		kb := notifSettingsKeyboard(enabled, interval)
-		b.sendWithInline(chatID, msgNotifSettings(enabled, interval), kb)
-	case "❓ Помощь":
-		b.sendRaw(chatID, msgHelp(b.cfg.SiteDomain, b.adminContact()))
-	}
 }
 
 func (b *Bot) handleCheck(chatID int64, uid int64) {
@@ -385,8 +368,6 @@ func (b *Bot) send(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup)
 	msg.DisableWebPagePreview = true
 	if kb != nil {
 		msg.ReplyMarkup = kb
-	} else {
-		msg.ReplyMarkup = replyKeyboard()
 	}
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("send error: %v", err)
@@ -394,33 +375,18 @@ func (b *Bot) send(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup)
 }
 
 func (b *Bot) sendWithInline(chatID int64, text string, kb *tgbotapi.InlineKeyboardMarkup) {
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "HTML"
-	msg.DisableWebPagePreview = true
-	msg.ReplyMarkup = replyKeyboard()
-	sent, err := b.api.Send(msg)
-	if err != nil {
-		log.Printf("send error: %v", err)
-		return
-	}
-	if kb != nil {
-		edit := tgbotapi.NewEditMessageText(chatID, sent.MessageID, text)
-		edit.ParseMode = "HTML"
-		edit.DisableWebPagePreview = true
-		edit.ReplyMarkup = kb
-		b.api.Send(edit)
-	}
+	b.send(chatID, text, kb)
 }
 
 func (b *Bot) reply(chatID int64, text string) {
 	b.send(chatID, text, nil)
 }
 
-func (b *Bot) sendRaw(chatID int64, text string) {
+func (b *Bot) sendSilent(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "HTML"
 	msg.DisableWebPagePreview = true
-	msg.ReplyMarkup = replyKeyboard()
+	msg.DisableNotification = true
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("send error: %v", err)
 	}
@@ -445,18 +411,6 @@ func maskCode(code string) string {
 		return "****"
 	}
 	return code[:4] + "****" + code[len(code)-4:]
-}
-
-func replyKeyboard() tgbotapi.ReplyKeyboardMarkup {
-	return tgbotapi.NewReplyKeyboard(
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("📊 Результаты"),
-		),
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("⚙️ Настройки"),
-			tgbotapi.NewKeyboardButton("❓ Помощь"),
-		),
-	)
 }
 
 func mainKeyboard(isAdmin bool, hasCode bool) *tgbotapi.InlineKeyboardMarkup {
