@@ -175,21 +175,6 @@ func (b *Bot) cmdStart(msg *tgbotapi.Message) {
 	}
 }
 
-func (b *Bot) cmdStartPlain(chatID int64, uid int64) {
-	users := b.store.LoadUsers()
-	_, hasCode := users[uid]
-	kb := mainKeyboard(b.isAdmin(uid), hasCode)
-
-	if u, ok := users[uid]; ok {
-		masked := maskCode(u.Code)
-		interval := u.GetInterval()
-		txt := msgWelcomeRegistered(b.cfg.SiteDomain, masked, interval)
-		b.send(chatID, txt, kb)
-	} else {
-		b.send(chatID, msgWelcome(b.cfg.SiteDomain), kb)
-	}
-}
-
 func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 	b.api.Request(tgbotapi.NewCallback(q.ID, ""))
 
@@ -280,11 +265,15 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 	case "admin_status":
 		if b.isAdmin(uid) {
 			b.edit(chatID, msgID, b.buildStatusText(), adminStatusMenu())
+		} else {
+			b.edit(chatID, msgID, "Нет доступа.", mainKeyboard(false, false))
 		}
 
 	case "admin_users":
 		if b.isAdmin(uid) {
 			b.edit(chatID, msgID, b.buildUsersText(), adminUsersMenu())
+		} else {
+			b.edit(chatID, msgID, "Нет доступа.", mainKeyboard(false, false))
 		}
 	}
 }

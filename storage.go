@@ -47,12 +47,17 @@ func NewStorage(dir string) (*Storage, error) {
 	s := &Storage{dir: dir}
 	s.users = s.readUsersFile()
 	s.state = s.readStateFile()
+	migrated := false
 	for uid := range s.users {
 		entry := s.users[uid]
 		if entry.Interval <= 0 {
 			entry.Interval = 15
 			s.users[uid] = entry
+			migrated = true
 		}
+	}
+	if migrated {
+		s.writeUsersFile()
 	}
 	return s, nil
 }
@@ -174,7 +179,7 @@ func (s *Storage) GetCheckInterval(uid int64) int {
 	if entry, ok := s.users[uid]; ok {
 		return entry.GetInterval()
 	}
-	return 30
+	return 15
 }
 
 func (s *Storage) NeedsCheck(uid int64) bool {

@@ -81,22 +81,6 @@ func FetchResults(code string) (map[string]Result, error) {
 	return nil, lastErr
 }
 
-func friendlyError(err error) string {
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "connection reset"):
-		return "Сайт временно недоступен, попробуйте через минуту"
-	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline"):
-		return "Сайт не отвечает, попробуйте позже"
-	case strings.Contains(msg, "no such host"):
-		return "Не удаётся подключиться к сайту"
-	case strings.Contains(msg, "connection refused"):
-		return "Сайт временно недоступен"
-	default:
-		return "Ошибка связи с сайтом, попробуйте позже"
-	}
-}
-
 func parseResults(html string) (map[string]Result, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
@@ -192,6 +176,7 @@ func CheckSiteAvailable() (bool, int64) {
 	if err != nil {
 		return false, latency
 	}
-	r.Body.Close()
+	defer r.Body.Close()
+	io.ReadAll(r.Body)
 	return true, latency
 }
