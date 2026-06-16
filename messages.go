@@ -43,8 +43,7 @@ func msgWelcomeRegistered(siteDomain, masked string, interval int) string {
 }
 
 func msgSetCode() string {
-	return "🔑 Введите код участника в формате <code>XXXX-XXXX-XXXX</code>\n\n" +
-		"Отправьте /start для отмены."
+	return "🔑 Введите код участника в формате <code>XXXX-XXXX-XXXX</code>"
 }
 
 func msgCodeSaved() string {
