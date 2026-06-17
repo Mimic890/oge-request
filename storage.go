@@ -5,27 +5,30 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
 
 type Storage struct {
-	dir   string
-	mu    sync.Mutex
-	users map[int64]UserEntry
-	state map[int64]map[string]Result
+	dir    string
+	mu     sync.Mutex
+	users  map[int64]UserEntry
+	state  map[int64]map[string]Result
+	order  map[int64][]string
 }
 
 type UserEntry struct {
-	Code         string        `json:"code"`
-	Username     string        `json:"username"`
-	Enabled      bool          `json:"enabled"`
-	ErrorsEnabled bool         `json:"errors_enabled"`
-	Interval     int           `json:"interval"`
-	LastActive   time.Time     `json:"last_active"`
-	LastCheck    time.Time     `json:"last_check"`
-	WarningSent  bool          `json:"warning_sent"`
-	FarewellSent bool          `json:"farewell_sent"`
+	Code          string        `json:"code"`
+	Username      string        `json:"username"`
+	Enabled       bool          `json:"enabled"`
+	ErrorsEnabled bool          `json:"errors_enabled"`
+	Interval      int           `json:"interval"`
+	LastActive    time.Time     `json:"last_active"`
+	LastCheck     time.Time     `json:"last_check"`
+	WarningSent   bool          `json:"warning_sent"`
+	FarewellSent  bool          `json:"farewell_sent"`
+	CreatedAt     time.Time     `json:"created_at"`
 }
 
 func (e UserEntry) GetInterval() int {
@@ -42,11 +45,20 @@ func NewStorage(dir string) (*Storage, error) {
 	s := &Storage{dir: dir}
 	s.users = s.readUsersFile()
 	s.state = s.readStateFile()
+	s.order = s.readOrderFile()
 	migrated := false
 	for uid := range s.users {
 		entry := s.users[uid]
 		if entry.Interval <= 0 {
 			entry.Interval = 15
+			s.users[uid] = entry
+			migrated = true
+		}
+		if entry.CreatedAt.IsZero() {
+			entry.CreatedAt = entry.LastActive
+			if entry.CreatedAt.IsZero() {
+				entry.CreatedAt = time.Now()
+			}
 			s.users[uid] = entry
 			migrated = true
 		}
@@ -62,7 +74,7 @@ func (s *Storage) SaveUser(uid int64, code string, username string) {
 	defer s.mu.Unlock()
 	entry, exists := s.users[uid]
 	if !exists {
-		entry = UserEntry{Enabled: true, Interval: 15}
+		entry = UserEntry{Enabled: true, Interval: 15, CreatedAt: time.Now()}
 	}
 	entry.Code = code
 	if username != "" {
@@ -219,6 +231,55 @@ func (s *Storage) LoadUsers() map[int64]UserEntry {
 	return out
 }
 
+func (s *Storage) LoadUsersSorted() []UserEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]UserEntry, 0, len(s.users))
+	for _, v := range s.users {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].Code < out[j].Code
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out
+}
+
+func (s *Storage) LoadUsersSortedWithIDs() []struct {
+	ID    int64
+	Entry UserEntry
+} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	type pair struct {
+		ID    int64
+		Entry UserEntry
+	}
+	out := make([]pair, 0, len(s.users))
+	for k, v := range s.users {
+		out = append(out, pair{ID: k, Entry: v})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Entry.CreatedAt.Equal(out[j].Entry.CreatedAt) {
+			return out[i].Entry.Code < out[j].Entry.Code
+		}
+		return out[i].Entry.CreatedAt.Before(out[j].Entry.CreatedAt)
+	})
+	result := make([]struct {
+		ID    int64
+		Entry UserEntry
+	}, len(out))
+	for i, p := range out {
+		result[i] = struct {
+			ID    int64
+			Entry UserEntry
+		}{ID: p.ID, Entry: p.Entry}
+	}
+	return result
+}
+
 func (s *Storage) GetUserResults(uid int64) map[string]Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -238,6 +299,58 @@ func (s *Storage) UpdateUserResults(uid int64, results map[string]Result) []stri
 	s.state[uid] = results
 	s.writeStateFile()
 	return changed
+}
+
+func (s *Storage) UpdateUserResultsOrdered(uid int64, ordered *OrderedResults) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	results := ordered.ToMap()
+	old := s.state[uid]
+	changed := DiffResults(old, results)
+	s.state[uid] = results
+	s.order[uid] = ordered.SubjectsSlice()
+	s.writeStateFile()
+	s.writeOrderFile()
+	return changed
+}
+
+func (s *Storage) GetUserOrder(uid int64) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.order[uid]
+}
+
+func (s *Storage) GetUserResultsOrdered(uid int64) []SubjectResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	results := s.state[uid]
+	order := s.order[uid]
+	if len(order) == 0 {
+		out := make([]SubjectResult, 0, len(results))
+		for name, r := range results {
+			out = append(out, SubjectResult{Name: name, Date: r.Date, Score: r.Score, Grade: r.Grade})
+		}
+		return out
+	}
+	out := make([]SubjectResult, 0, len(order))
+	for _, name := range order {
+		if r, ok := results[name]; ok {
+			out = append(out, SubjectResult{Name: name, Date: r.Date, Score: r.Score, Grade: r.Grade})
+		}
+	}
+	for name, r := range results {
+		found := false
+		for _, n := range order {
+			if n == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, SubjectResult{Name: name, Date: r.Date, Score: r.Score, Grade: r.Grade})
+		}
+	}
+	return out
 }
 
 func (s *Storage) RemoveState(uid int64) {
@@ -314,5 +427,31 @@ func (s *Storage) writeStateFile() {
 	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		log.Printf("state.json write error: %v", err)
+	}
+}
+
+func (s *Storage) readOrderFile() map[int64][]string {
+	path := filepath.Join(s.dir, "order.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return make(map[int64][]string)
+	}
+	var order map[int64][]string
+	if err := json.Unmarshal(data, &order); err != nil {
+		log.Printf("order.json parse error: %v", err)
+		return make(map[int64][]string)
+	}
+	return order
+}
+
+func (s *Storage) writeOrderFile() {
+	path := filepath.Join(s.dir, "order.json")
+	data, err := json.MarshalIndent(s.order, "", "  ")
+	if err != nil {
+		log.Printf("order.json marshal error: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		log.Printf("order.json write error: %v", err)
 	}
 }

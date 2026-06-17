@@ -49,6 +49,37 @@ func FetchResultsOnce(code string) (map[string]Result, error) {
 	return fetchResults(code, 1)
 }
 
+func FetchResultsOnceOrdered(code string) (*OrderedResults, error) {
+	if siteLimiter != nil {
+		siteLimiter.Wait()
+	}
+	body := fmt.Sprintf("code=%s&year=%s", code, time.Now().Format("06"))
+	req, err := http.NewRequest("POST", resultsURL, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	stats.RecordVisit()
+	stats.AddBytes(int64(len(data)) + int64(len(body)))
+
+	return ParseOrderedResults(string(data))
+}
+
 func fetchResults(code string, attempts int) (map[string]Result, error) {
 	if siteLimiter != nil {
 		siteLimiter.Wait()
@@ -84,18 +115,115 @@ func fetchResults(code string, attempts int) (map[string]Result, error) {
 		stats.RecordVisit()
 		stats.AddBytes(int64(len(data)) + int64(len(body)))
 
-		return parseResults(string(data))
+		ordered, err := ParseOrderedResults(string(data))
+		if err != nil {
+			return nil, err
+		}
+		return ordered.ToMap(), nil
 	}
 	return nil, lastErr
 }
 
-func parseResults(html string) (map[string]Result, error) {
+func FetchResultsOrdered(code string) (*OrderedResults, error) {
+	if siteLimiter != nil {
+		siteLimiter.Wait()
+	}
+	body := fmt.Sprintf("code=%s&year=%s", code, time.Now().Format("06"))
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+		}
+		req, err := http.NewRequest("POST", resultsURL, strings.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		stats.RecordVisit()
+		stats.AddBytes(int64(len(data)) + int64(len(body)))
+
+		return ParseOrderedResults(string(data))
+	}
+	return nil, lastErr
+}
+
+type SubjectResult struct {
+	Name string
+	Date string
+	Score string
+	Grade string
+}
+
+type OrderedResults struct {
+	Subjects []SubjectResult
+	byName   map[string]SubjectResult
+}
+
+func NewOrderedResults() *OrderedResults {
+	return &OrderedResults{
+		byName: make(map[string]SubjectResult),
+	}
+}
+
+func (o *OrderedResults) Add(name, date, score, grade string) {
+	sr := SubjectResult{Name: name, Date: date, Score: score, Grade: grade}
+	o.byName[name] = sr
+	o.Subjects = append(o.Subjects, sr)
+}
+
+func (o *OrderedResults) Get(name string) (SubjectResult, bool) {
+	sr, ok := o.byName[name]
+	return sr, ok
+}
+
+func (o *OrderedResults) Len() int {
+	return len(o.Subjects)
+}
+
+func (o *OrderedResults) ToMap() map[string]Result {
+	out := make(map[string]Result, len(o.Subjects))
+	for _, sr := range o.Subjects {
+		out[sr.Name] = Result{Date: sr.Date, Score: sr.Score, Grade: sr.Grade}
+	}
+	return out
+}
+
+func (o *OrderedResults) ToSubjectResults() []SubjectResult {
+	return o.Subjects
+}
+
+func (o *OrderedResults) SubjectsSlice() []string {
+	out := make([]string, len(o.Subjects))
+	for i, sr := range o.Subjects {
+		out[i] = sr.Name
+	}
+	return out
+}
+
+func ParseOrderedResults(html string) (*OrderedResults, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return nil, err
 	}
 
-	results := make(map[string]Result)
+	results := NewOrderedResults()
 
 	doc.Find(".panel.panel-default").Each(func(_ int, s *goquery.Selection) {
 		nameEl := s.Find(".subject-name a")
@@ -109,10 +237,18 @@ func parseResults(html string) (map[string]Result, error) {
 		gradeRaw = strings.TrimPrefix(gradeRaw, "Оценка:")
 		gradeRaw = strings.TrimSpace(gradeRaw)
 		grade := fixGradeSpacing(gradeRaw)
-		results[subj] = Result{Date: date, Score: score, Grade: grade}
+		results.Add(subj, date, score, grade)
 	})
 
 	return results, nil
+}
+
+func parseResults(html string) (map[string]Result, error) {
+	ordered, err := ParseOrderedResults(html)
+	if err != nil {
+		return nil, err
+	}
+	return ordered.ToMap(), nil
 }
 
 func FormatResults(results map[string]Result) string {
@@ -128,6 +264,25 @@ func FormatResults(results map[string]Result) string {
 		}
 		if r.Grade != "" {
 			sb.WriteString(fmt.Sprintf("  Оценка: %s\n", r.Grade))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func FormatOrderedResults(subjects []SubjectResult) string {
+	var sb strings.Builder
+	sb.WriteString(msgResultsHeader())
+	for _, sr := range subjects {
+		sb.WriteString(fmt.Sprintf("<b>%s</b>\n", sr.Name))
+		if sr.Date != "" {
+			sb.WriteString(fmt.Sprintf("  Дата: %s\n", sr.Date))
+		}
+		if sr.Score != "" {
+			sb.WriteString(fmt.Sprintf("  Балл: %s\n", sr.Score))
+		}
+		if sr.Grade != "" {
+			sb.WriteString(fmt.Sprintf("  Оценка: %s\n", sr.Grade))
 		}
 		sb.WriteString("\n")
 	}
@@ -167,24 +322,4 @@ func DiffResults(old, cur map[string]Result) []string {
 		}
 	}
 	return changed
-}
-
-func CheckSiteAvailable() (bool, int64) {
-	if siteLimiter != nil {
-		siteLimiter.Wait()
-	}
-	start := time.Now()
-	req, err := http.NewRequest("GET", "https://"+siteDomain+"/", nil)
-	if err != nil {
-		return false, 0
-	}
-	req.Header.Set("User-Agent", headers["User-Agent"])
-	r, err := httpClient.Do(req)
-	latency := time.Since(start).Milliseconds()
-	if err != nil {
-		return false, latency
-	}
-	defer r.Body.Close()
-	io.ReadAll(r.Body)
-	return true, latency
 }

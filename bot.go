@@ -312,18 +312,18 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 		return
 	}
 
-	results, err := FetchResults(u.Code)
+	ordered, err := FetchResultsOrdered(u.Code)
 	if err != nil {
 		b.sendWithInline(chatID, msgSiteUnavailable(b.adminContact()), mainKeyboard(b.isAdmin(uid), true))
 		return
 	}
-	if len(results) == 0 {
+	if ordered.Len() == 0 {
 		b.sendWithInline(chatID, msgNoResults(), resultMenu())
 		return
 	}
 
-	changed := b.store.UpdateUserResults(uid, results)
-	text := FormatResults(results)
+	changed := b.store.UpdateUserResultsOrdered(uid, ordered)
+	text := FormatOrderedResults(ordered.Subjects)
 	if len(changed) > 0 {
 		text = msgUpdateHeader() + text
 	}
@@ -338,18 +338,19 @@ func (b *Bot) checkAndSend(chatID int64, msgID int, uid int64) {
 		return
 	}
 
-	results, err := FetchResults(u.Code)
+	ordered, err := FetchResultsOrdered(u.Code)
 	if err != nil {
-		b.edit(chatID, msgID, msgSiteUnavailable(b.adminContact()), resultMenu())
+		notifyAdminError(b, uid, u.Code, u.Username, err)
+		b.sendWithInline(chatID, msgSiteUnavailable(b.adminContact()), resultMenu())
 		return
 	}
-	if len(results) == 0 {
+	if ordered.Len() == 0 {
 		b.edit(chatID, msgID, msgNoResults(), resultMenu())
 		return
 	}
 
-	changed := b.store.UpdateUserResults(uid, results)
-	text := FormatResults(results)
+	changed := b.store.UpdateUserResultsOrdered(uid, ordered)
+	text := FormatOrderedResults(ordered.Subjects)
 	if len(changed) > 0 {
 		text = msgUpdateHeader() + text
 	}
@@ -535,11 +536,8 @@ func (b *Bot) buildStatusText() string {
 		limitStr = fmt.Sprintf("%d", b.cfg.MaxUsers)
 	}
 
-	siteOK, siteMs := CheckSiteAvailable()
-
 	return msgAdminStatus(
 		b.cfg.SiteDomain,
-		siteOK, siteMs,
 		hours, mins,
 		totalUsers, activeUsers,
 		limitStr,
@@ -551,26 +549,27 @@ func (b *Bot) buildStatusText() string {
 }
 
 func (b *Bot) buildUsersText() string {
-	users := b.store.LoadUsers()
+	users := b.store.LoadUsersSortedWithIDs()
 	if len(users) == 0 {
 		return msgAdminUsersEmpty()
 	}
 	var sb strings.Builder
 	sb.WriteString(msgAdminUsersHeader())
-	for uid, entry := range users {
-		masked := maskCode(entry.Code)
-		interval := entry.GetInterval()
+	for i, u := range users {
+		masked := maskCode(u.Entry.Code)
+		interval := u.Entry.GetInterval()
 		notif := "вкл"
-		if !entry.Enabled {
+		if !u.Entry.Enabled {
 			notif = "выкл"
 		}
-		name := fmt.Sprintf("%d", uid)
-		if entry.Username != "" {
-			name = fmt.Sprintf("%d - @%s", uid, entry.Username)
+		name := fmt.Sprintf("%d", u.ID)
+		if u.Entry.Username != "" {
+			name = fmt.Sprintf("%d - @%s", u.ID, u.Entry.Username)
 		}
 		sb.WriteString(fmt.Sprintf("<code>%s</code>\n", name))
 		sb.WriteString(fmt.Sprintf("  Код: %s\n", masked))
 		sb.WriteString(fmt.Sprintf("  Интервал: %d мин | Уведомления: %s\n\n", interval, notif))
+		_ = i
 	}
 	return sb.String()
 }
