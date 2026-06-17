@@ -135,19 +135,10 @@ func msgInactivityFarewell() string {
 
 // Admin status
 
-func msgAdminStatus(siteDomain string, siteOK bool, siteMs int64, hours, mins, totalUsers, activeUsers int, limitStr string, visitsToday, totalVisits int64, traffic, ramAlloc, ramSys string, goroutines int) string {
-	siteIcon := "🟢"
-	if !siteOK {
-		siteIcon = "🔴"
-	}
-	siteStatus := "Online"
-	if !siteOK {
-		siteStatus = "Offline"
-	}
+func msgAdminStatus(siteDomain string, hours, mins, totalUsers, activeUsers int, limitStr string, visitsToday, totalVisits int64, traffic, ramAlloc, ramSys string, goroutines int) string {
 	return fmt.Sprintf(
 		"<b>Bot Status</b>\n"+
 			"<code>%s</code>\n\n"+
-			"%s Site: %s (%dms)\n"+
 			"⏱ Uptime: %dh %dm\n"+
 			"👥 Users: %d/%s (active: %d)\n"+
 			"📊 Checks today: %d\n"+
@@ -156,7 +147,6 @@ func msgAdminStatus(siteDomain string, siteOK bool, siteMs int64, hours, mins, t
 			"💾 RAM: %s / %s\n"+
 			"⚙️ Goroutines: %d",
 		siteDomain,
-		siteIcon, siteStatus, siteMs,
 		hours, mins,
 		totalUsers, limitStr, activeUsers,
 		visitsToday, totalVisits,
