@@ -33,36 +33,44 @@ func checkAll(store *Storage, bot *Bot) {
 		}
 
 		checked++
-		results, err := FetchResultsOnce(entry.Code)
+		ordered, err := FetchResultsOnceOrdered(entry.Code)
 		if err != nil {
 			log.Printf("check uid=%d error: %v", uid, err)
 			continue
 		}
-		if len(results) == 0 {
+		if ordered.Len() == 0 {
 			continue
 		}
 
 		store.ResetErrors(uid)
 		store.UpdateLastCheck(uid)
-		changed := store.UpdateUserResults(uid, results)
+		changed := store.UpdateUserResultsOrdered(uid, ordered)
 		if len(changed) > 0 {
 			log.Printf("uid=%d: %d subjects changed: %v", uid, len(changed), changed)
 			if entry.Enabled {
 				var sb strings.Builder
 				sb.WriteString(msgUpdateHeader())
-				for _, subj := range changed {
-					r := results[subj]
-					sb.WriteString("<b>" + subj + "</b>\n")
-					if r.Date != "" {
-						sb.WriteString("  Дата: " + r.Date + "\n")
+				for _, sr := range ordered.Subjects {
+					isChanged := false
+					for _, c := range changed {
+						if c == sr.Name {
+							isChanged = true
+							break
+						}
 					}
-					if r.Score != "" {
-						sb.WriteString("  Балл: " + r.Score + "\n")
+					if isChanged {
+						sb.WriteString("<b>" + sr.Name + "</b>\n")
+						if sr.Date != "" {
+							sb.WriteString("  Дата: " + sr.Date + "\n")
+						}
+						if sr.Score != "" {
+							sb.WriteString("  Балл: " + sr.Score + "\n")
+						}
+						if sr.Grade != "" {
+							sb.WriteString("  Оценка: " + sr.Grade + "\n")
+						}
+						sb.WriteString("\n")
 					}
-					if r.Grade != "" {
-						sb.WriteString("  Оценка: " + r.Grade + "\n")
-					}
-					sb.WriteString("\n")
 				}
 				bot.send(uid, sb.String(), nil)
 			}
