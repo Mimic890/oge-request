@@ -20,13 +20,12 @@ type UserEntry struct {
 	Code         string        `json:"code"`
 	Username     string        `json:"username"`
 	Enabled      bool          `json:"enabled"`
+	ErrorsEnabled bool         `json:"errors_enabled"`
 	Interval     int           `json:"interval"`
 	LastActive   time.Time     `json:"last_active"`
 	LastCheck    time.Time     `json:"last_check"`
-	WarningSent      bool          `json:"warning_sent"`
-	FarewellSent     bool          `json:"farewell_sent"`
-	ErrorsEnabled    bool          `json:"errors_enabled"`
-	ConsecutiveErrors int          `json:"consecutive_errors"`
+	WarningSent  bool          `json:"warning_sent"`
+	FarewellSent bool          `json:"farewell_sent"`
 }
 
 func (e UserEntry) GetInterval() int {
@@ -52,7 +51,7 @@ func NewStorage(dir string) (*Storage, error) {
 			migrated = true
 		}
 	}
-	if migrated {
+	if migrated || len(s.users) > 0 {
 		s.writeUsersFile()
 	}
 	return s, nil
@@ -195,30 +194,6 @@ func (s *Storage) SetErrorsEnabled(uid int64, enabled bool) {
 		s.users[uid] = entry
 		s.writeUsersFile()
 	}
-}
-
-func (s *Storage) ResetErrors(uid int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if entry, ok := s.users[uid]; ok {
-		if entry.ConsecutiveErrors > 0 {
-			entry.ConsecutiveErrors = 0
-			s.users[uid] = entry
-			s.writeUsersFile()
-		}
-	}
-}
-
-func (s *Storage) IncrementErrors(uid int64) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if entry, ok := s.users[uid]; ok {
-		entry.ConsecutiveErrors++
-		s.users[uid] = entry
-		s.writeUsersFile()
-		return entry.ConsecutiveErrors
-	}
-	return 0
 }
 
 func (s *Storage) NeedsCheck(uid int64) bool {

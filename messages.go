@@ -43,7 +43,8 @@ func msgWelcomeRegistered(siteDomain, masked string, interval int) string {
 }
 
 func msgSetCode() string {
-	return "🔑 Введите код участника в формате <code>XXXX-XXXX-XXXX</code>"
+	return "🔑 Введите код участника в формате <code>XXXX-XXXX-XXXX</code>\n\n" +
+		"Отправьте /start для отмены."
 }
 
 func msgCodeSaved() string {
@@ -80,21 +81,16 @@ func msgDeleteConfirm() string {
 
 // Notification settings
 
-func msgNotifSettings(enabled bool, interval int, errorsEnabled bool) string {
+func msgNotifSettings(enabled bool, interval int) string {
 	status := "🔔 Включены"
 	if !enabled {
 		status = "🔕 Выключены"
 	}
-	errStatus := "🔔 Вкл"
-	if !errorsEnabled {
-		errStatus = "🔕 Выкл"
-	}
 	return fmt.Sprintf(
 		"<b>⚙️ Настройки уведомлений</b>\n\n"+
 			"Уведомления: %s\n"+
-			"Интервал проверки: %d мин\n"+
-			"Ошибки админу: %s",
-		status, interval, errStatus)
+			"Интервал проверки: %d мин",
+		status, interval)
 }
 
 func msgNotifToggled(enabled bool) string {
@@ -106,13 +102,6 @@ func msgNotifToggled(enabled bool) string {
 
 func msgIntervalChanged(interval int) string {
 	return fmt.Sprintf("✅ Интервал проверки изменён на %d мин.", interval)
-}
-
-func msgErrorsToggled(enabled bool) string {
-	if enabled {
-		return "🔔 Уведомления об ошибках включены. Администратор будет получать сообщения при ошибках проверки."
-	}
-	return "🔕 Уведомления об ошибках выключены."
 }
 
 // Inactivity
@@ -135,10 +124,19 @@ func msgInactivityFarewell() string {
 
 // Admin status
 
-func msgAdminStatus(siteDomain string, hours, mins, totalUsers, activeUsers int, limitStr string, visitsToday, totalVisits int64, traffic, ramAlloc, ramSys string, goroutines int) string {
+func msgAdminStatus(siteDomain string, siteOK bool, siteMs int64, hours, mins, totalUsers, activeUsers int, limitStr string, visitsToday, totalVisits int64, traffic, ramAlloc, ramSys string, goroutines int) string {
+	siteIcon := "🟢"
+	if !siteOK {
+		siteIcon = "🔴"
+	}
+	siteStatus := "Online"
+	if !siteOK {
+		siteStatus = "Offline"
+	}
 	return fmt.Sprintf(
 		"<b>Bot Status</b>\n"+
 			"<code>%s</code>\n\n"+
+			"%s Site: %s (%dms)\n"+
 			"⏱ Uptime: %dh %dm\n"+
 			"👥 Users: %d/%s (active: %d)\n"+
 			"📊 Checks today: %d\n"+
@@ -147,6 +145,7 @@ func msgAdminStatus(siteDomain string, hours, mins, totalUsers, activeUsers int,
 			"💾 RAM: %s / %s\n"+
 			"⚙️ Goroutines: %d",
 		siteDomain,
+		siteIcon, siteStatus, siteMs,
 		hours, mins,
 		totalUsers, limitStr, activeUsers,
 		visitsToday, totalVisits,
