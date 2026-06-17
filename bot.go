@@ -20,7 +20,6 @@ type Bot struct {
 	api           *tgbotapi.BotAPI
 	cfg           Config
 	store         *Storage
-	siteFailures  *SiteFailureTracker
 	adminUsername  string
 	mu            sync.Mutex
 	waiting       map[int64]bool
@@ -53,7 +52,6 @@ func NewBot(cfg Config, store *Storage) (*Bot, error) {
 		api:          api,
 		cfg:          cfg,
 		store:        store,
-		siteFailures: &SiteFailureTracker{},
 		waiting:      make(map[int64]bool),
 	}
 

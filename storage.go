@@ -20,6 +20,7 @@ type UserEntry struct {
 	Code         string        `json:"code"`
 	Username     string        `json:"username"`
 	Enabled      bool          `json:"enabled"`
+	ErrorsEnabled bool         `json:"errors_enabled"`
 	Interval     int           `json:"interval"`
 	LastActive   time.Time     `json:"last_active"`
 	LastCheck    time.Time     `json:"last_check"`
@@ -32,12 +33,6 @@ func (e UserEntry) GetInterval() int {
 		return 15
 	}
 	return e.Interval
-}
-
-type SiteFailureTracker struct {
-	mu            sync.Mutex
-	Failures      int
-	NotifiedAdmin bool
 }
 
 func NewStorage(dir string) (*Storage, error) {
@@ -56,7 +51,7 @@ func NewStorage(dir string) (*Storage, error) {
 			migrated = true
 		}
 	}
-	if migrated {
+	if migrated || len(s.users) > 0 {
 		s.writeUsersFile()
 	}
 	return s, nil
@@ -180,6 +175,25 @@ func (s *Storage) GetCheckInterval(uid int64) int {
 		return entry.GetInterval()
 	}
 	return 15
+}
+
+func (s *Storage) GetErrorsEnabled(uid int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		return entry.ErrorsEnabled
+	}
+	return true
+}
+
+func (s *Storage) SetErrorsEnabled(uid int64, enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.ErrorsEnabled = enabled
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
 }
 
 func (s *Storage) NeedsCheck(uid int64) bool {
