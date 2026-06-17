@@ -42,12 +42,20 @@ type Result struct {
 }
 
 func FetchResults(code string) (map[string]Result, error) {
+	return fetchResults(code, 3)
+}
+
+func FetchResultsOnce(code string) (map[string]Result, error) {
+	return fetchResults(code, 1)
+}
+
+func fetchResults(code string, attempts int) (map[string]Result, error) {
 	if siteLimiter != nil {
 		siteLimiter.Wait()
 	}
 	body := fmt.Sprintf("code=%s&year=%s", code, time.Now().Format("06"))
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 		}

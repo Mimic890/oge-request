@@ -33,7 +33,7 @@ func checkAll(store *Storage, bot *Bot) {
 		}
 
 		checked++
-		results, err := FetchResults(entry.Code)
+		results, err := FetchResultsOnce(entry.Code)
 		if err != nil {
 			log.Printf("check uid=%d error: %v", uid, err)
 			continue
