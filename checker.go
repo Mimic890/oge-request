@@ -168,23 +168,3 @@ func DiffResults(old, cur map[string]Result) []string {
 	}
 	return changed
 }
-
-func CheckSiteAvailable() (bool, int64) {
-	if siteLimiter != nil {
-		siteLimiter.Wait()
-	}
-	start := time.Now()
-	req, err := http.NewRequest("GET", "https://"+siteDomain+"/", nil)
-	if err != nil {
-		return false, 0
-	}
-	req.Header.Set("User-Agent", headers["User-Agent"])
-	r, err := httpClient.Do(req)
-	latency := time.Since(start).Milliseconds()
-	if err != nil {
-		return false, latency
-	}
-	defer r.Body.Close()
-	io.ReadAll(r.Body)
-	return true, latency
-}

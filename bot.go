@@ -201,7 +201,7 @@ func (b *Bot) onCallback(q *tgbotapi.CallbackQuery) {
 		b.edit(chatID, msgID, msgSetCode(), &kb)
 
 	case "check":
-		b.checkAndSend(chatID, msgID, uid)
+		go b.checkAndSend(chatID, msgID, uid)
 
 	case "disable":
 		kb := tgbotapi.NewInlineKeyboardMarkup(
@@ -359,7 +359,8 @@ func (b *Bot) checkAndSend(chatID int64, msgID int, uid int64) {
 
 	results, err := FetchResults(u.Code)
 	if err != nil {
-		b.edit(chatID, msgID, msgSiteUnavailable(b.adminContact()), resultMenu())
+		notifyAdminError(b, uid, u.Code, u.Username, err)
+		b.sendWithInline(chatID, msgSiteUnavailable(b.adminContact()), resultMenu())
 		return
 	}
 	if len(results) == 0 {
@@ -578,11 +579,8 @@ func (b *Bot) buildStatusText() string {
 		limitStr = fmt.Sprintf("%d", b.cfg.MaxUsers)
 	}
 
-	siteOK, siteMs := CheckSiteAvailable()
-
 	return msgAdminStatus(
 		b.cfg.SiteDomain,
-		siteOK, siteMs,
 		hours, mins,
 		totalUsers, activeUsers,
 		limitStr,
