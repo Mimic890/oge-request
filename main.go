@@ -14,6 +14,20 @@ import (
 	"github.com/joho/godotenv"
 )
 
+func setupTimezone() {
+	tz := os.Getenv("TZ")
+	if tz == "" {
+		tz = "UTC"
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		log.Printf("invalid TZ=%q: %v, using UTC", tz, err)
+		return
+	}
+	time.Local = loc
+	log.Printf("timezone: %s", tz)
+}
+
 func setupLogging(dataDir string) {
 	logsDir := filepath.Join(dataDir, "logs")
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
@@ -115,6 +129,8 @@ func validateDataDir(dir string) error {
 
 func main() {
 	cfg := LoadConfig()
+
+	setupTimezone()
 
 	if err := validateDataDir(cfg.DataDir); err != nil {
 		log.Fatalf("DATA DIR ERROR:\n%v", err)
