@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -342,7 +343,7 @@ func (b *Bot) handleCheck(chatID int64, uid int64) {
 	}
 
 	changed := b.store.UpdateUserResultsOrdered(uid, ordered)
-	text := FormatOrderedResults(ordered.Subjects)
+	text := FormatOrderedResults(ordered.Subjects, time.Now())
 	if len(changed) > 0 {
 		text = msgUpdateHeader() + text
 	}
@@ -369,7 +370,7 @@ func (b *Bot) checkAndSend(chatID int64, msgID int, uid int64) {
 	}
 
 	changed := b.store.UpdateUserResultsOrdered(uid, ordered)
-	text := FormatOrderedResults(ordered.Subjects)
+	text := FormatOrderedResults(ordered.Subjects, time.Now())
 	if len(changed) > 0 {
 		text = msgUpdateHeader() + text
 	}
