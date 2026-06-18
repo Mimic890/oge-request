@@ -4,3 +4,12 @@ backups/
 *.exe
 *.log
 oge-request
+
+.mimocode/
+.codex/
+.claude/
+.cursor/
+.vscode/
+.idea/
+.windsurf/
+copilot/
