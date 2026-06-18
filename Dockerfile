@@ -6,7 +6,8 @@ COPY *.go ./
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /bot .
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates tzdata
+ENV TZ=UTC
 COPY --from=build /bot /bot
 WORKDIR /app
 ENTRYPOINT ["/bot"]
