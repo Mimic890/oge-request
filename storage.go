@@ -16,6 +16,7 @@ type Storage struct {
 	users  map[int64]UserEntry
 	state  map[int64]map[string]Result
 	order  map[int64][]string
+	timing map[int64]time.Time
 }
 
 type UserEntry struct {
@@ -46,6 +47,7 @@ func NewStorage(dir string) (*Storage, error) {
 	s.users = s.readUsersFile()
 	s.state = s.readStateFile()
 	s.order = s.readOrderFile()
+	s.timing = s.readTimingFile()
 	migrated := false
 	for uid := range s.users {
 		entry := s.users[uid]
@@ -309,8 +311,10 @@ func (s *Storage) UpdateUserResultsOrdered(uid int64, ordered *OrderedResults) [
 	changed := DiffResults(old, results)
 	s.state[uid] = results
 	s.order[uid] = ordered.SubjectsSlice()
+	s.timing[uid] = time.Now()
 	s.writeStateFile()
 	s.writeOrderFile()
+	s.writeTimingFile()
 	return changed
 }
 
@@ -318,6 +322,19 @@ func (s *Storage) GetUserOrder(uid int64) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.order[uid]
+}
+
+func (s *Storage) GetLastUpdated(uid int64) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.timing[uid]
+}
+
+func (s *Storage) SetLastUpdated(uid int64, t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.timing[uid] = t
+	s.writeTimingFile()
 }
 
 func (s *Storage) GetUserResultsOrdered(uid int64) []SubjectResult {
@@ -453,5 +470,31 @@ func (s *Storage) writeOrderFile() {
 	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		log.Printf("order.json write error: %v", err)
+	}
+}
+
+func (s *Storage) readTimingFile() map[int64]time.Time {
+	path := filepath.Join(s.dir, "timing.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return make(map[int64]time.Time)
+	}
+	var timing map[int64]time.Time
+	if err := json.Unmarshal(data, &timing); err != nil {
+		log.Printf("timing.json parse error: %v", err)
+		return make(map[int64]time.Time)
+	}
+	return timing
+}
+
+func (s *Storage) writeTimingFile() {
+	path := filepath.Join(s.dir, "timing.json")
+	data, err := json.MarshalIndent(s.timing, "", "  ")
+	if err != nil {
+		log.Printf("timing.json marshal error: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		log.Printf("timing.json write error: %v", err)
 	}
 }

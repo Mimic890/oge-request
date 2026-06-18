@@ -270,9 +270,16 @@ func FormatResults(results map[string]Result) string {
 	return sb.String()
 }
 
-func FormatOrderedResults(subjects []SubjectResult) string {
+func FormatOrderedResults(subjects []SubjectResult, lastUpdated time.Time) string {
 	var sb strings.Builder
 	sb.WriteString(msgResultsHeader())
+	if !lastUpdated.IsZero() {
+		months := [...]string{"января", "февраля", "марта", "апреля", "мая", "июня",
+			"июля", "августа", "сентября", "октября", "ноября", "декабря"}
+		m := lastUpdated.Month() - 1
+		sb.WriteString(fmt.Sprintf("🔄 Обновлено: %d %s %s\n\n",
+			lastUpdated.Day(), months[m], lastUpdated.Format("15:04:05")))
+	}
 	for _, sr := range subjects {
 		sb.WriteString(fmt.Sprintf("<b>%s</b>\n", sr.Name))
 		if sr.Date != "" {
