@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func TestFixGradeSpacing(t *testing.T) {
@@ -230,8 +232,8 @@ func TestUserEntryDefaults(t *testing.T) {
 	if !entry.Enabled {
 		t.Error("default Enabled should be true")
 	}
-	if entry.Interval != 15 {
-		t.Errorf("default Interval = %d, want 15", entry.Interval)
+	if entry.Interval != 5 {
+		t.Errorf("default Interval = %d, want 5", entry.Interval)
 	}
 }
 
@@ -240,10 +242,10 @@ func TestGetInterval(t *testing.T) {
 		interval int
 		want     int
 	}{
-		{0, 15},
-		{-5, 15},
+		{0, 5},
+		{-5, 5},
+		{5, 5},
 		{15, 15},
-		{60, 60},
 	}
 	for _, tt := range tests {
 		e := UserEntry{Interval: tt.interval}
@@ -279,13 +281,13 @@ func TestCheckInterval(t *testing.T) {
 	s, _ := NewStorage(dir)
 	s.SaveUser(300, "1234-5678-9012", "")
 
-	if s.GetCheckInterval(300) != 15 {
-		t.Error("default interval should be 15")
+	if s.GetCheckInterval(300) != 5 {
+		t.Error("default interval should be 5")
 	}
 
-	s.SetCheckInterval(300, 30)
-	if s.GetCheckInterval(300) != 30 {
-		t.Error("interval should be 30 after SetCheckInterval(30)")
+	s.SetCheckInterval(300, 10)
+	if s.GetCheckInterval(300) != 10 {
+		t.Error("interval should be 10 after SetCheckInterval(10)")
 	}
 }
 
@@ -437,4 +439,434 @@ func containsStr(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestRemoveUserCleansUpAll(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := NewStorage(dir)
+	s.SaveUser(100, "1234-5678-9012", "testuser")
+	ordered := NewOrderedResults()
+	ordered.Add("Мат", "01.06", "23", "5 ЗАЧЕТ")
+	s.UpdateUserResultsOrdered(100, ordered)
+
+	s.RemoveUser(100)
+
+	if len(s.LoadUsers()) != 0 {
+		t.Error("user not removed from users")
+	}
+	if len(s.GetUserResults(100)) != 0 {
+		t.Error("state not removed")
+	}
+	if len(s.GetUserOrder(100)) != 0 {
+		t.Error("order not removed")
+	}
+	if !s.GetLastUpdated(100).IsZero() {
+		t.Error("timing not removed")
+	}
+}
+
+func TestNotifSettingsKeyboardIntervals(t *testing.T) {
+	kb := notifSettingsKeyboard(true, 5)
+	found5 := false
+	for _, row := range kb.InlineKeyboard {
+		for _, btn := range row {
+			if btn.Text == "5 мин ✓" && btn.CallbackData != nil && *btn.CallbackData == "notif_5" {
+				found5 = true
+			}
+		}
+	}
+	if !found5 {
+		t.Error("missing 5 мин ✓ button with notif_5 callback")
+	}
+
+	kb = notifSettingsKeyboard(true, 10)
+	found10 := false
+	for _, row := range kb.InlineKeyboard {
+		for _, btn := range row {
+			if btn.Text == "10 мин ✓" && btn.CallbackData != nil && *btn.CallbackData == "notif_10" {
+				found10 = true
+			}
+		}
+	}
+	if !found10 {
+		t.Error("missing 10 мин ✓ button with notif_10 callback")
+	}
+
+	kb = notifSettingsKeyboard(false, 15)
+	found15 := false
+	foundEnable := false
+	for _, row := range kb.InlineKeyboard {
+		for _, btn := range row {
+			if btn.Text == "15 мин ✓" && btn.CallbackData != nil && *btn.CallbackData == "notif_15" {
+				found15 = true
+			}
+			if btn.CallbackData != nil && *btn.CallbackData == "notif_toggle" {
+				if contains(btn.Text, "Включить") {
+					foundEnable = true
+				}
+			}
+		}
+	}
+	if !found15 {
+		t.Error("missing 15 мин ✓ button with notif_15 callback")
+	}
+	if !foundEnable {
+		t.Error("should show Включить when disabled")
+	}
+
+	kb = notifSettingsKeyboard(true, 5)
+	foundDisable := false
+	for _, row := range kb.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData != nil && *btn.CallbackData == "notif_toggle" {
+				if contains(btn.Text, "Выключить") {
+					foundDisable = true
+				}
+			}
+		}
+	}
+	if !foundDisable {
+		t.Error("should show Выключить when enabled")
+	}
+}
+
+func TestMainKeyboardLayout(t *testing.T) {
+	hasCallback := func(kb *tgbotapi.InlineKeyboardMarkup, data string) bool {
+		for _, row := range kb.InlineKeyboard {
+			for _, btn := range row {
+				if btn.CallbackData != nil && *btn.CallbackData == data {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	kb := mainKeyboard(false, false)
+	if !hasCallback(kb, "check") {
+		t.Error("should see check button")
+	}
+	if !hasCallback(kb, "set_code") {
+		t.Error("should see set_code button")
+	}
+	if hasCallback(kb, "notif_settings") {
+		t.Error("non-registered user should not see notif_settings")
+	}
+
+	kb = mainKeyboard(false, true)
+	if !hasCallback(kb, "notif_settings") {
+		t.Error("registered user should see notif_settings")
+	}
+	if !hasCallback(kb, "disable") {
+		t.Error("registered user should see disable button")
+	}
+
+	kb = mainKeyboard(true, true)
+	if !hasCallback(kb, "admin_status") {
+		t.Error("admin should see admin_status")
+	}
+	if !hasCallback(kb, "admin_users") {
+		t.Error("admin should see admin_users")
+	}
+	if !hasCallback(kb, "admin_broadcast") {
+		t.Error("admin should see admin_broadcast")
+	}
+}
+
+func TestUpdateUserResultsOrdered(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := NewStorage(dir)
+	s.SaveUser(800, "1234-5678-9012", "")
+
+	ordered := NewOrderedResults()
+	ordered.Add("Рус", "01.06", "20", "4 ХОРОШО")
+	ordered.Add("Мат", "02.06", "23", "5 ЗАЧЕТ")
+
+	changed := s.UpdateUserResultsOrdered(800, ordered)
+	if len(changed) != 2 {
+		t.Errorf("first update: expected 2 changed, got %d", len(changed))
+	}
+
+	order := s.GetUserOrder(800)
+	if len(order) != 2 || order[0] != "Рус" || order[1] != "Мат" {
+		t.Errorf("order wrong: %v", order)
+	}
+
+	lastUpdated := s.GetLastUpdated(800)
+	if lastUpdated.IsZero() {
+		t.Error("lastUpdated should be set")
+	}
+
+	ordered2 := NewOrderedResults()
+	ordered2.Add("Рус", "01.06", "20", "4 ХОРОШО")
+	ordered2.Add("Мат", "02.06", "25", "5 ЗАЧЕТ")
+
+	changed = s.UpdateUserResultsOrdered(800, ordered2)
+	if len(changed) != 1 || changed[0] != "Мат" {
+		t.Errorf("second update: expected [Мат] changed, got %v", changed)
+	}
+}
+
+func TestLoadUsersSortedWithIDs(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := NewStorage(dir)
+
+	s.SaveUser(1, "1111-1111-1111", "alice")
+	time.Sleep(10 * time.Millisecond)
+	s.SaveUser(2, "2222-2222-2222", "bob")
+
+	users := s.LoadUsersSortedWithIDs()
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+	if users[0].Entry.Username != "alice" {
+		t.Errorf("first user should be alice, got %s", users[0].Entry.Username)
+	}
+	if users[1].Entry.Username != "bob" {
+		t.Errorf("second user should be bob, got %s", users[1].Entry.Username)
+	}
+	if users[0].ID != 1 {
+		t.Errorf("first user ID should be 1, got %d", users[0].ID)
+	}
+}
+
+func TestErrorsEnabled(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := NewStorage(dir)
+	s.SaveUser(900, "1234-5678-9012", "")
+
+	if s.GetErrorsEnabled(900) {
+		t.Error("default errors should be disabled")
+	}
+
+	s.SetErrorsEnabled(900, true)
+	if !s.GetErrorsEnabled(900) {
+		t.Error("errors should be enabled after SetErrorsEnabled(true)")
+	}
+
+	s.SetErrorsEnabled(900, false)
+	if s.GetErrorsEnabled(900) {
+		t.Error("errors should be disabled after SetErrorsEnabled(false)")
+	}
+}
+
+func TestGetIntervalAllOptions(t *testing.T) {
+	tests := []struct {
+		interval int
+		want     int
+	}{
+		{0, 5},
+		{-1, 5},
+		{5, 5},
+		{10, 10},
+		{15, 15},
+	}
+	for _, tt := range tests {
+		e := UserEntry{Interval: tt.interval}
+		got := e.GetInterval()
+		if got != tt.want {
+			t.Errorf("GetInterval(%d) = %d, want %d", tt.interval, got, tt.want)
+		}
+	}
+}
+
+func TestFormatOrderedResultsWithTimestamp(t *testing.T) {
+	subjects := []SubjectResult{
+		{Name: "Математика", Date: "02.06.2026", Score: "23", Grade: "5 ЗАЧЕТ"},
+	}
+	ts := time.Date(2026, 6, 19, 14, 30, 0, 0, time.Local)
+	got := FormatOrderedResults(subjects, ts)
+	if !contains(got, "Обновлено") {
+		t.Error("missing Обновлено header")
+	}
+	if !contains(got, "Математика") {
+		t.Error("missing subject name")
+	}
+	if !contains(got, "14:30:00") {
+		t.Error("missing timestamp")
+	}
+}
+
+func TestFormatOrderedResultsZeroTime(t *testing.T) {
+	subjects := []SubjectResult{
+		{Name: "Русский", Date: "01.06.2026", Score: "18", Grade: "4 ХОРОШО"},
+	}
+	got := FormatOrderedResults(subjects, time.Time{})
+	if contains(got, "Обновлено") {
+		t.Error("should not show Обновлено for zero time")
+	}
+	if !contains(got, "Русский") {
+		t.Error("missing subject name")
+	}
+}
+
+func TestParseOrderedResults(t *testing.T) {
+	html := `<html><body>
+		<div class="panel panel-default">
+			<div class="subject-name"><a>Русский язык</a></div>
+			<div class="subject-date">01.06.2026</div>
+			<div class="primary">Первичный балл: 20 (67%)</div>
+			<div class="mark4">Оценка:4ХОРОШО</div>
+		</div>
+		<div class="panel panel-default">
+			<div class="subject-name"><a>Математика</a></div>
+			<div class="subject-date">02.06.2026</div>
+			<div class="primary">Первичный балл: 23 (74%)</div>
+			<div class="mark5">Оценка:5ЗАЧЕТ</div>
+		</div>
+	</body></html>`
+
+	results, err := ParseOrderedResults(html)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results.Len() != 2 {
+		t.Fatalf("expected 2 results, got %d", results.Len())
+	}
+
+	subjects := results.Subjects
+	if subjects[0].Name != "Русский язык" {
+		t.Errorf("first subject = %q, want Русский язык", subjects[0].Name)
+	}
+	if subjects[1].Name != "Математика" {
+		t.Errorf("second subject = %q, want Математика", subjects[1].Name)
+	}
+	if subjects[0].Grade != "4 ХОРОШО" {
+		t.Errorf("first grade = %q, want 4 ХОРОШО", subjects[0].Grade)
+	}
+	if subjects[1].Grade != "5 ЗАЧЕТ" {
+		t.Errorf("second grade = %q, want 5 ЗАЧЕТ", subjects[1].Grade)
+	}
+
+	r, ok := results.Get("Математика")
+	if !ok {
+		t.Error("Get Математика not found")
+	}
+	if r.Score != "Первичный балл: 23 (74%)" {
+		t.Errorf("score = %q", r.Score)
+	}
+}
+
+func TestParseOrderedResultsEmpty(t *testing.T) {
+	results, err := ParseOrderedResults("<html><body></body></html>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results.Len() != 0 {
+		t.Errorf("expected 0 results, got %d", results.Len())
+	}
+}
+
+func TestOrderedResultsToMap(t *testing.T) {
+	ordered := NewOrderedResults()
+	ordered.Add("Мат", "01.06", "23", "5")
+	ordered.Add("Рус", "02.06", "18", "4")
+
+	m := ordered.ToMap()
+	if len(m) != 2 {
+		t.Fatalf("ToMap: expected 2 entries, got %d", len(m))
+	}
+	if m["Мат"].Score != "23" {
+		t.Errorf("Мат score = %q", m["Мат"].Score)
+	}
+}
+
+func TestOrderedResultsSubjectsSlice(t *testing.T) {
+	ordered := NewOrderedResults()
+	ordered.Add("А", "01", "1", "1")
+	ordered.Add("Б", "02", "2", "2")
+	ordered.Add("В", "03", "3", "3")
+
+	slice := ordered.SubjectsSlice()
+	if len(slice) != 3 || slice[0] != "А" || slice[1] != "Б" || slice[2] != "В" {
+		t.Errorf("SubjectsSlice = %v", slice)
+	}
+}
+
+func TestSiteCacheSetGet(t *testing.T) {
+	cache := &siteCache{
+		entries: make(map[string]*siteCacheEntry),
+		ttl:     2 * time.Minute,
+	}
+
+	if got := cache.get("test"); got != nil {
+		t.Error("expected nil for missing cache entry")
+	}
+
+	ordered := NewOrderedResults()
+	ordered.Add("Мат", "01.06", "23", "5 ЗАЧЕТ")
+	cache.set("test", ordered)
+
+	got := cache.get("test")
+	if got == nil {
+		t.Fatal("expected cached result, got nil")
+	}
+	if got.Len() != 1 {
+		t.Errorf("expected 1 result, got %d", got.Len())
+	}
+}
+
+func TestSiteCacheExpiry(t *testing.T) {
+	cache := &siteCache{
+		entries: make(map[string]*siteCacheEntry),
+		ttl:     1 * time.Millisecond,
+	}
+
+	ordered := NewOrderedResults()
+	ordered.Add("Мат", "01.06", "23", "5")
+	cache.set("test", ordered)
+
+	time.Sleep(5 * time.Millisecond)
+
+	if got := cache.get("test"); got != nil {
+		t.Error("expected nil for expired cache entry")
+	}
+}
+
+func TestSiteCacheOverwrite(t *testing.T) {
+	cache := &siteCache{
+		entries: make(map[string]*siteCacheEntry),
+		ttl:     2 * time.Minute,
+	}
+
+	ordered1 := NewOrderedResults()
+	ordered1.Add("Мат", "01.06", "20", "4")
+	cache.set("test", ordered1)
+
+	ordered2 := NewOrderedResults()
+	ordered2.Add("Мат", "01.06", "23", "5")
+	ordered2.Add("Рус", "02.06", "18", "4")
+	cache.set("test", ordered2)
+
+	got := cache.get("test")
+	if got == nil {
+		t.Fatal("expected cached result")
+	}
+	if got.Len() != 2 {
+		t.Errorf("expected 2 results after overwrite, got %d", got.Len())
+	}
+}
+
+func TestStatsErrorTracking(t *testing.T) {
+	s := &Stats{Uptime: time.Now()}
+
+	if s.ErrorsToday() != 0 {
+		t.Error("expected 0 errors initially")
+	}
+
+	s.RecordError()
+	s.RecordError()
+	if s.ErrorsToday() != 2 {
+		t.Errorf("expected 2 errors, got %d", s.ErrorsToday())
+	}
+}
+
+func TestStatsErrorReset(t *testing.T) {
+	s := &Stats{Uptime: time.Now()}
+	s.errorDate = "2020-01-01"
+	s.errorsToday = 999
+
+	if s.ErrorsToday() != 0 {
+		t.Error("expected 0 errors after date reset")
+	}
 }

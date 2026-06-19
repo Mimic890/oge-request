@@ -35,7 +35,6 @@ func cleanupInactive(store *Storage, bot *Bot) {
 		case daysInactive >= inactivityDeleteDays:
 			log.Printf("deleting inactive user %d (%d days)", uid, daysInactive)
 			store.RemoveUser(uid)
-			store.RemoveState(uid)
 		case daysInactive >= inactivityWarningDays && !entry.WarningSent:
 			store.SetWarningSent(uid)
 			bot.send(uid, msgInactivityWarning(daysInactive), nil)

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -19,10 +20,68 @@ func InitSiteURL(domain string) {
 }
 
 var httpClient = &http.Client{
-	Timeout: 15 * time.Second,
+	Timeout: 10 * time.Second,
 	Transport: &http.Transport{
-		Proxy: nil,
+		Proxy:                 nil,
+		MaxIdleConns:          10,
+		MaxIdleConnsPerHost:   5,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:  5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
 	},
+}
+
+type siteCacheEntry struct {
+	results *OrderedResults
+	expires time.Time
+}
+
+type siteCache struct {
+	mu      sync.Mutex
+	entries map[string]*siteCacheEntry
+	ttl     time.Duration
+}
+
+var siteCacheStore = &siteCache{
+	entries: make(map[string]*siteCacheEntry),
+	ttl:     2 * time.Minute,
+}
+
+var fetchMu sync.Mutex
+var fetchCodeMu = make(map[string]*sync.Mutex)
+
+func fetchLock(code string) *sync.Mutex {
+	fetchMu.Lock()
+	defer fetchMu.Unlock()
+	m, ok := fetchCodeMu[code]
+	if !ok {
+		m = &sync.Mutex{}
+		fetchCodeMu[code] = m
+	}
+	return m
+}
+
+func (c *siteCache) get(code string) *OrderedResults {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[code]
+	if !ok {
+		return nil
+	}
+	if time.Now().After(e.expires) {
+		delete(c.entries, code)
+		return nil
+	}
+	return e.results
+}
+
+func (c *siteCache) set(code string, results *OrderedResults) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[code] = &siteCacheEntry{
+		results: results,
+		expires: time.Now().Add(c.ttl),
+	}
 }
 
 var siteLimiter *RateLimiter
@@ -41,15 +100,7 @@ type Result struct {
 	Grade string `json:"grade"`
 }
 
-func FetchResults(code string) (map[string]Result, error) {
-	return fetchResults(code, 3)
-}
-
-func FetchResultsOnce(code string) (map[string]Result, error) {
-	return fetchResults(code, 1)
-}
-
-func FetchResultsOnceOrdered(code string) (*OrderedResults, error) {
+func fetchOnceOrdered(code string) (*OrderedResults, error) {
 	if siteLimiter != nil {
 		siteLimiter.Wait()
 	}
@@ -80,88 +131,54 @@ func FetchResultsOnceOrdered(code string) (*OrderedResults, error) {
 	return ParseOrderedResults(string(data))
 }
 
-func fetchResults(code string, attempts int) (map[string]Result, error) {
-	if siteLimiter != nil {
-		siteLimiter.Wait()
+func FetchResultsFresh(code string) (*OrderedResults, error) {
+	m := fetchLock(code)
+	m.Lock()
+	defer m.Unlock()
+
+	if cached := siteCacheStore.get(code); cached != nil {
+		return cached, nil
 	}
-	body := fmt.Sprintf("code=%s&year=%s", code, time.Now().Format("06"))
-	var lastErr error
-	for attempt := 0; attempt < attempts; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
-		}
-		req, err := http.NewRequest("POST", resultsURL, strings.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		for k, v := range headers {
-			req.Header.Set(k, v)
-		}
 
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		data, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		stats.RecordVisit()
-		stats.AddBytes(int64(len(data)) + int64(len(body)))
-
-		ordered, err := ParseOrderedResults(string(data))
-		if err != nil {
-			return nil, err
-		}
-		return ordered.ToMap(), nil
-	}
-	return nil, lastErr
-}
-
-func FetchResultsOrdered(code string) (*OrderedResults, error) {
-	if siteLimiter != nil {
-		siteLimiter.Wait()
-	}
-	body := fmt.Sprintf("code=%s&year=%s", code, time.Now().Format("06"))
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 		}
-		req, err := http.NewRequest("POST", resultsURL, strings.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		for k, v := range headers {
-			req.Header.Set(k, v)
-		}
-
-		resp, err := httpClient.Do(req)
+		ordered, err := fetchOnceOrdered(code)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-
-		data, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		stats.RecordVisit()
-		stats.AddBytes(int64(len(data)) + int64(len(body)))
-
-		return ParseOrderedResults(string(data))
+		siteCacheStore.set(code, ordered)
+		return ordered, nil
 	}
 	return nil, lastErr
+}
+
+func FetchResultsOnceOrdered(code string) (*OrderedResults, error) {
+	if cached := siteCacheStore.get(code); cached != nil {
+		return cached, nil
+	}
+
+	m := fetchLock(code)
+	m.Lock()
+	defer m.Unlock()
+
+	if cached := siteCacheStore.get(code); cached != nil {
+		return cached, nil
+	}
+
+	ordered, err := fetchOnceOrdered(code)
+	if err != nil {
+		return nil, err
+	}
+	siteCacheStore.set(code, ordered)
+	return ordered, nil
+}
+
+func FetchResultsOrdered(code string) (*OrderedResults, error) {
+	return FetchResultsFresh(code)
 }
 
 type SubjectResult struct {
@@ -203,10 +220,6 @@ func (o *OrderedResults) ToMap() map[string]Result {
 		out[sr.Name] = Result{Date: sr.Date, Score: sr.Score, Grade: sr.Grade}
 	}
 	return out
-}
-
-func (o *OrderedResults) ToSubjectResults() []SubjectResult {
-	return o.Subjects
 }
 
 func (o *OrderedResults) SubjectsSlice() []string {

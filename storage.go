@@ -25,6 +25,7 @@ type UserEntry struct {
 	Enabled       bool          `json:"enabled"`
 	ErrorsEnabled bool          `json:"errors_enabled"`
 	Interval      int           `json:"interval"`
+	ErrorCount    int64         `json:"error_count"`
 	LastActive    time.Time     `json:"last_active"`
 	LastCheck     time.Time     `json:"last_check"`
 	WarningSent   bool          `json:"warning_sent"`
@@ -34,7 +35,7 @@ type UserEntry struct {
 
 func (e UserEntry) GetInterval() int {
 	if e.Interval <= 0 {
-		return 15
+		return 5
 	}
 	return e.Interval
 }
@@ -52,7 +53,7 @@ func NewStorage(dir string) (*Storage, error) {
 	for uid := range s.users {
 		entry := s.users[uid]
 		if entry.Interval <= 0 {
-			entry.Interval = 15
+			entry.Interval = 5
 			s.users[uid] = entry
 			migrated = true
 		}
@@ -76,9 +77,10 @@ func (s *Storage) SaveUser(uid int64, code string, username string) {
 	defer s.mu.Unlock()
 	entry, exists := s.users[uid]
 	if !exists {
-		entry = UserEntry{Enabled: true, Interval: 15, CreatedAt: time.Now()}
+		entry = UserEntry{Enabled: true, Interval: 5, CreatedAt: time.Now()}
 	}
 	entry.Code = code
+	entry.ErrorCount = 0
 	if username != "" {
 		entry.Username = username
 	}
@@ -93,7 +95,13 @@ func (s *Storage) RemoveUser(uid int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.users, uid)
+	delete(s.state, uid)
+	delete(s.order, uid)
+	delete(s.timing, uid)
 	s.writeUsersFile()
+	s.writeStateFile()
+	s.writeOrderFile()
+	s.writeTimingFile()
 }
 
 func (s *Storage) UpdateLastActive(uid int64) {
@@ -153,6 +161,28 @@ func (s *Storage) SetFarewellSent(uid int64) {
 	}
 }
 
+func (s *Storage) IncrementErrorCount(uid int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		entry.ErrorCount++
+		s.users[uid] = entry
+		s.writeUsersFile()
+	}
+}
+
+func (s *Storage) ResetErrorCount(uid int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.users[uid]; ok {
+		if entry.ErrorCount > 0 {
+			entry.ErrorCount = 0
+			s.users[uid] = entry
+			s.writeUsersFile()
+		}
+	}
+}
+
 func (s *Storage) SetNotifEnabled(uid int64, enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -188,7 +218,7 @@ func (s *Storage) GetCheckInterval(uid int64) int {
 	if entry, ok := s.users[uid]; ok {
 		return entry.GetInterval()
 	}
-	return 15
+	return 5
 }
 
 func (s *Storage) GetErrorsEnabled(uid int64) bool {
@@ -230,22 +260,6 @@ func (s *Storage) LoadUsers() map[int64]UserEntry {
 	for k, v := range s.users {
 		out[k] = v
 	}
-	return out
-}
-
-func (s *Storage) LoadUsersSorted() []UserEntry {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]UserEntry, 0, len(s.users))
-	for _, v := range s.users {
-		out = append(out, v)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].Code < out[j].Code
-		}
-		return out[i].CreatedAt.Before(out[j].CreatedAt)
-	})
 	return out
 }
 
@@ -368,13 +382,6 @@ func (s *Storage) GetUserResultsOrdered(uid int64) []SubjectResult {
 		}
 	}
 	return out
-}
-
-func (s *Storage) RemoveState(uid int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.state, uid)
-	s.writeStateFile()
 }
 
 func (s *Storage) TotalUsers() int {

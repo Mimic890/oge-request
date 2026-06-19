@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -55,12 +56,13 @@ func setupLogging(dataDir string) {
 }
 
 type Config struct {
-	TelegramToken string
-	AdminID       int64
-	MaxUsers      int
-	MaxRPS        int
-	SiteDomain    string
-	DataDir       string
+	TelegramToken    string
+	AdminID          int64
+	MaxUsers         int
+	MaxRPS           int
+	SiteDomain       string
+	DataDir          string
+	CheckConcurrency int
 }
 
 func LoadConfig() Config {
@@ -85,14 +87,19 @@ func LoadConfig() Config {
 	if siteDomain == "" {
 		siteDomain = "ege-kostroma.ru"
 	}
+	checkConcurrency, _ := strconv.Atoi(os.Getenv("CHECK_CONCURRENCY"))
+	if checkConcurrency <= 0 {
+		checkConcurrency = 5
+	}
 
 	return Config{
-		TelegramToken: token,
-		AdminID:       adminID,
-		MaxUsers:      maxUsers,
-		MaxRPS:        maxRPS,
-		SiteDomain:    siteDomain,
-		DataDir:       dataDir,
+		TelegramToken:    token,
+		AdminID:          adminID,
+		MaxUsers:         maxUsers,
+		MaxRPS:           maxRPS,
+		SiteDomain:       siteDomain,
+		DataDir:          dataDir,
+		CheckConcurrency: checkConcurrency,
 	}
 }
 
@@ -161,13 +168,27 @@ func main() {
 		time.Sleep(backoff)
 	}
 
-	go RunChecker(store, bot)
+	go RunChecker(store, bot, cfg.CheckConcurrency)
 	go RunInactivityManager(store, bot)
 
-	log.Printf("bot started, max_users=%d", cfg.MaxUsers)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		uptime := stats.UptimeDuration()
+		fmt.Fprintf(w, `{"status":"ok","uptime":"%s","users":%d}`, uptime.Round(time.Second), store.TotalUsers())
+	})
+	go func() {
+		log.Println("healthcheck: :8080/health")
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			log.Printf("healthcheck server stopped: %v", err)
+		}
+	}()
+
+	log.Printf("bot started, max_users=%d, check_concurrency=%d", cfg.MaxUsers, cfg.CheckConcurrency)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Println("shutting down")
+	sig := <-quit
+	log.Printf("received signal %v, shutting down...", sig)
+
+	bot.Stop()
+	log.Println("bot stopped")
 }

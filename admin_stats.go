@@ -14,6 +14,8 @@ type Stats struct {
 	Uptime      time.Time
 	visitDate   string
 	visitsToday int64
+	errorDate   string
+	errorsToday int64
 }
 
 var stats = &Stats{Uptime: time.Now()}
@@ -28,6 +30,27 @@ func (s *Stats) RecordVisit() {
 	s.visitsToday++
 	s.mu.Unlock()
 	atomic.AddInt64(&s.SiteVisits, 1)
+}
+
+func (s *Stats) RecordError() {
+	today := time.Now().Format("2006-01-02")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.errorDate != today {
+		s.errorDate = today
+		s.errorsToday = 0
+	}
+	s.errorsToday++
+}
+
+func (s *Stats) ErrorsToday() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	today := time.Now().Format("2006-01-02")
+	if s.errorDate != today {
+		return 0
+	}
+	return s.errorsToday
 }
 
 func (s *Stats) AddBytes(n int64) {

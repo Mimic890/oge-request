@@ -15,23 +15,6 @@ func msgWelcome(siteDomain string) string {
 		"<a href=\"" + repoURL + "\">" + repoMessage + "</a>"
 }
 
-func msgHelp(siteDomain, adminContact string) string {
-	return fmt.Sprintf(
-		"<b>📊 ОГЭ Монитор</b>\n"+
-			"<code>%s</code>\n\n"+
-			"Бот проверяет результаты ОГЭ и сообщает об изменениях.\n\n"+
-			"<b>Как пользоваться:</b>\n"+
-			"1. Нажмите «Настроить код»\n"+
-			"2. Введите код участника XXXX-XXXX-XXXX\n"+
-			"3. Бот начнёт проверять результаты\n\n"+
-			"<b>Настройки:</b>\n"+
-			"• Интервал проверки: 15, 30 или 60 мин\n"+
-			"• Уведомления можно включить/выключить\n\n"+
-			"<b>Администратор:</b> %s\n\n"+
-			"<a href=\"%s\">%s</a>",
-		siteDomain, adminContact, repoURL, repoMessage)
-}
-
 func msgWelcomeRegistered(siteDomain, masked string, interval int) string {
 	return fmt.Sprintf(
 		"<b>📊 ОГЭ Монитор</b>\n"+
@@ -43,8 +26,7 @@ func msgWelcomeRegistered(siteDomain, masked string, interval int) string {
 }
 
 func msgSetCode() string {
-	return "🔑 Введите код участника в формате <code>XXXX-XXXX-XXXX</code>\n\n" +
-		"Отправьте /start для отмены."
+	return "🔑 Введите код участника в формате <code>XXXX-XXXX-XXXX</code>"
 }
 
 func msgCodeSaved() string {
@@ -124,7 +106,7 @@ func msgInactivityFarewell() string {
 
 // Admin status
 
-func msgAdminStatus(siteDomain string, hours, mins, totalUsers, activeUsers int, limitStr string, visitsToday, totalVisits int64, traffic, ramAlloc, ramSys string, goroutines int) string {
+func msgAdminStatus(siteDomain string, hours, mins, totalUsers, activeUsers int, limitStr string, visitsToday, totalVisits int64, traffic, ramAlloc, ramSys string, goroutines int, errorsToday int64) string {
 	return fmt.Sprintf(
 		"<b>Bot Status</b>\n"+
 			"<code>%s</code>\n\n"+
@@ -132,6 +114,7 @@ func msgAdminStatus(siteDomain string, hours, mins, totalUsers, activeUsers int,
 			"👥 Users: %d/%s (active: %d)\n"+
 			"📊 Checks today: %d\n"+
 			"📈 Total checks: %d\n"+
+			"❌ Errors today: %d\n"+
 			"📡 Traffic: %s\n"+
 			"💾 RAM: %s / %s\n"+
 			"⚙️ Goroutines: %d",
@@ -139,6 +122,7 @@ func msgAdminStatus(siteDomain string, hours, mins, totalUsers, activeUsers int,
 		hours, mins,
 		totalUsers, limitStr, activeUsers,
 		visitsToday, totalVisits,
+		errorsToday,
 		traffic, ramAlloc, ramSys, goroutines)
 }
 
@@ -148,4 +132,20 @@ func msgAdminUsersEmpty() string {
 
 func msgAdminUsersHeader() string {
 	return "<b>👥 Пользователи:</b>\n\n"
+}
+
+func msgBroadcastPrompt() string {
+	return "📢 Выберите важность оповещения:"
+}
+
+func msgBroadcastEnter() string {
+	return "✏️ Введите текст оповещения:"
+}
+
+func msgBroadcastSent(total, success int) string {
+	return fmt.Sprintf("📢 Рассылка завершена\n\nОтправлено: %d/%d", success, total)
+}
+
+func msgChecking() string {
+	return "⏳ Проверяю результаты..."
 }
